@@ -1,4 +1,4 @@
-# Tennis Pressure Simulation Project 🎾🔥
+# Tennis Pressure Simulation Project 🎾
 
 This project analyzes tennis match data at the **point-by-point** level at Grand Slam matches from 2020-2024, using Monte Carlo simulations to estimate the *importance* of each point in a match. The goal is to identify which players perform best or worst under pressure by simulating match outcomes based on serve/return win probabilities and match state.
 
