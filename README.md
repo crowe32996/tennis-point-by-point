@@ -8,6 +8,10 @@ The streamlit app visualizes the findings of these simulations, and highlights p
 
 ---
 
+## Tennis Pressure-Point Dashboard
+![Streamlit Dashboard](images/streamlit_preview.png)
+
+
 ## Overview
 
 The project consists of four main components:
@@ -97,6 +101,35 @@ streamlit run streamlit_app.py
 ```
 
 Open the URL shown in your terminal (http://localhost:8501)
+
+---
+
+## Screenshots
+
+### Filters for Visualization by Gender, Tournament, High vs. Low Performers, and Pressure Threshold
+![Filters](screenshots/filters.png)
+
+---
+
+### Top or Lowest Performers by Clutch Delta
+View change in point % won when facing a high-pressure point (filter to view highest vs. lowest performers):
+![Top Clutch Performers](screenshots/top_performers_clutch_delta.png)
+
+---
+
+### Point Importance by Game Score
+View average importance by game score:
+![Point Importance by Game Score](screenshots/importance_by_game_score.png)
+
+---
+
+
+### Win Rate Heatmap by Game Score
+View win rate by game score (filter to view serve/return):
+![Win Rate by Game Score](screenshots/win_rate_by_game_score.png)
+
+---
+
 
 
 Notes
