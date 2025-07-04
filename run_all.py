@@ -13,7 +13,7 @@ def main():
     run_command("python scripts/prepare_data.py")
 
     # Step 2: Run simulations and save results
-    run_command("python -m scripts.main_full_run")
+    run_command("python -m scripts.run_simulations")
 
     # Step 3: Launch Streamlit app
     print("\nStarting Streamlit app. Open http://localhost:8501 in your browser.")

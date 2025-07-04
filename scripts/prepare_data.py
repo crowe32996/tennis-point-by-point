@@ -1,6 +1,19 @@
 import pandas as pd
 import numpy as np
 import os
+import requests
+
+def download_file_if_missing(url, local_path):
+    if not os.path.exists(local_path):
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        print(f"Downloading: {url}")
+        response = requests.get(url)
+        if response.status_code == 200:
+            with open(local_path, "wb") as f:
+                f.write(response.content)
+        else:
+            raise Exception(f"Failed to download {url} (status code {response.status_code})")
+
 
 # Grand Slam slugs and years
 slams = ['ausopen', 'frenchopen', 'wimbledon', 'usopen']
@@ -12,10 +25,18 @@ matches_df_list = []
 # Load all point-by-point and match data
 for year in years:
     for slam in slams:
-        points_path = f"data/raw/{year}-{slam}-points.csv"
-        matches_path = f"data/raw/{year}-{slam}-matches.csv"
+        points_file = f"{year}-{slam}-points.csv"
+        matches_file = f"{year}-{slam}-matches.csv"
+        points_path = f"data/raw/{points_file}"
+        matches_path = f"data/raw/{matches_file}"
 
-        if os.path.exists(points_path) and os.path.exists(matches_path):
+        base_url = "https://raw.githubusercontent.com/JeffSackmann/tennis_slam_pointbypoint/master/"
+
+        try:
+            # Try downloading if not already present
+            download_file_if_missing(base_url + points_file, points_path)
+            download_file_if_missing(base_url + matches_file, matches_path)
+
             print(f"Loading {year} {slam}...")
             points_df = pd.read_csv(points_path)
             matches_df = pd.read_csv(matches_path)
@@ -27,8 +48,9 @@ for year in years:
 
             points_df_list.append(points_df)
             matches_df_list.append(matches_df)
-        else:
-            print(f"Skipping missing files for {year} {slam}")
+
+        except Exception as e:
+            print(f"Failed to load {year} {slam}: {e}")
 
 pbp_df = pd.concat(points_df_list, ignore_index=True)
 match_df = pd.concat(matches_df_list, ignore_index=True)

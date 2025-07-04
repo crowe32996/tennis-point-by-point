@@ -4,8 +4,8 @@ import os
 import duckdb
 import pandas as pd
 
-DUCKDB_FILE = "data/processed/sim_results.duckdb"
-CSV_FILE = "data/processed/all_points_with_importance.csv"
+DUCKDB_FILE = "outputs/sim_results.duckdb"
+CSV_FILE = "outputs/all_points_with_importance.csv"
 TABLE_NAME = "importance_results"
 
 def initialize_duckdb_from_csv():
