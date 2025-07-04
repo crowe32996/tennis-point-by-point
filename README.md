@@ -107,26 +107,26 @@ Open the URL shown in your terminal (http://localhost:8501)
 ## Screenshots
 
 ### Filters for Visualization by Gender, Tournament, High vs. Low Performers, and Pressure Threshold
-![Filters](screenshots/filters.png)
+![Filters](images/filters.png)
 
 ---
 
 ### Top or Lowest Performers by Clutch Delta
 View change in point % won when facing a high-pressure point (filter to view highest vs. lowest performers):
-![Top Clutch Performers](screenshots/top_performers_clutch_delta.png)
+![Top Clutch Performers](images/top_performers_clutch_delta.png)
 
 ---
 
 ### Point Importance by Game Score
 View average importance by game score:
-![Point Importance by Game Score](screenshots/importance_by_game_score.png)
+![Point Importance by Game Score](images/importance_by_game_score.png)
 
 ---
 
 
 ### Win Rate Heatmap by Game Score
 View win rate by game score (filter to view serve/return):
-![Win Rate by Game Score](screenshots/win_rate_by_game_score.png)
+![Win Rate by Game Score](images/win_rate_by_game_score.png)
 
 ---
 
