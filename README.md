@@ -91,7 +91,7 @@ Run the full simulation to compute point importance scores and save results:
 python main_full_run.py
 ```
 
-This may take some time depending on your machine and simulation count.
+The simulation count can be adjusted but 1000 was chosen, weighing accuracy and efficiency.
 
 Step 3: Launch Interactive Explorer
 Start the Streamlit app to explore results:
