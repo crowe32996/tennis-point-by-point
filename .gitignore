@@ -8,8 +8,10 @@ data/processed/
 !data/processed/player_countries.csv   # keep this one
 # merged_tennis_data.csv stays ignored
 
-*.db
+#*.db
 *.duckdb
 *.sqlite
 outputs/all_points_with_importance_local.csv
 outputs/all_points_with_importance.csv
+outputs/all_points_with_importance.parquet
+
