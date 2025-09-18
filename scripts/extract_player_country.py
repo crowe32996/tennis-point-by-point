@@ -1,4 +1,10 @@
 import pandas as pd
+from pathlib import Path
+
+# repo root (assuming this script is in scripts/)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+OUTPUT_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
 
 YEARS = [2020, 2021, 2022, 2023, 2024]
 
@@ -41,7 +47,7 @@ player_country_df = pd.DataFrame(
 ).drop_duplicates()
 
 player_country_df.to_csv(
-    r"C:\Users\peppe\OneDrive\Desktop\Charlie\Data_Projects\tennis-point-by-point\data\processed\player_countries.csv",
+    OUTPUT_FILE,
     index=False
 )
 print("Player-country mapping saved to processed/player_countries.csv")

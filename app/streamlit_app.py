@@ -4,15 +4,15 @@ import pandas as pd
 import duckdb
 import os
 import altair as alt
+from pathlib import Path
 
+# Base directory is the repo root
+BASE_DIR = Path(__file__).resolve().parent.parent  # app/streamlit_app.py -> repo root
 
-# -----------------------
-# Config / constants
-# -----------------------
-DUCKDB_FILE = r"C:\Users\peppe\OneDrive\Desktop\Charlie\Data_Projects\tennis-point-by-point\outputs\sim_results.duckdb"
-CSV_FILE = r"C:\Users\peppe\OneDrive\Desktop\Charlie\Data_Projects\tennis-point-by-point\outputs\all_points_with_importance.csv"
+DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
+CSV_FILE = BASE_DIR / "outputs" / "all_points_with_importance.csv"
 TABLE_NAME = "importance_results"
-PLAYER_COUNTRY_FILE = r"C:\Users\peppe\OneDrive\Desktop\Charlie\Data_Projects\tennis-point-by-point\data\processed\player_countries.csv"
+PLAYER_COUNTRY_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
 player_country_df = pd.read_csv(PLAYER_COUNTRY_FILE)
 player_flag_map = dict(zip(player_country_df["player"], player_country_df["country"]))
 
