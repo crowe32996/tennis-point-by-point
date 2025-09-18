@@ -4,7 +4,6 @@ import pandas as pd
 import duckdb
 import os
 import altair as alt
-from st_aggrid import AgGrid, GridOptionsBuilder
 
 
 # -----------------------
