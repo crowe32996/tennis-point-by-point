@@ -7,7 +7,9 @@ import altair as alt
 from pathlib import Path
 
 # Base directory is the repo root
-BASE_DIR = Path(__file__).resolve().parent.parent  # app/streamlit_app.py -> repo root
+BASE_DIR = Path(__file__).resolve().parent.parent  # adjust if needed
+if not (BASE_DIR / "data").exists():
+    BASE_DIR = Path(__file__).resolve().parent  # fallback for cloud
 
 DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
 CSV_FILE = BASE_DIR / "outputs" / "all_points_with_importance.csv"
