@@ -4,11 +4,12 @@ __pycache__/
 
 # Data files
 data/raw/
-#data/processed/
-data/processed/merged_tennis_data.csv
-#*.csv
+data/processed/
+!data/processed/player_countries.csv   # keep this one
+# merged_tennis_data.csv stays ignored
+
 *.db
-#*.duckdb
+*.duckdb
 *.sqlite
 outputs/all_points_with_importance_local.csv
 outputs/all_points_with_importance.csv
