@@ -3,9 +3,11 @@ __pycache__/
 *.py[cod]
 
 # Data files
-data/raw/
+#data/raw/
 data/processed/
-*.csv
+#*.csv
 *.db
-*.duckdb
+#*.duckdb
 *.sqlite
+outputs/all_points_with_importance_local.csv
+outputs/all_points_with_importance.csv
