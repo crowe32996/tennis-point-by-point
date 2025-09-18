@@ -3,8 +3,9 @@ __pycache__/
 *.py[cod]
 
 # Data files
-#data/raw/
-data/processed/
+data/raw/
+#data/processed/
+data/processed/merged_tennis_data.csv
 #*.csv
 *.db
 #*.duckdb
