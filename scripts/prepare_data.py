@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import requests
+import re
+
 
 def download_file_if_missing(url, local_path):
     if not os.path.exists(local_path):
@@ -63,12 +65,24 @@ merged = pd.merge(
     how='left'
 )
 
+mask = merged["PointNumber"].astype(str).str.match(r"^\d+$")
+print("Filtered out rows with non-numeric PointNumber:", (~mask).sum())
+merged = merged[mask]
+
+merged["SetNo"] = merged["SetNo"].astype(int)
+merged["GameNo"] = merged["GameNo"].astype(int)
+merged["PointNumber"] = merged["PointNumber"].astype(int)
+
+merged = merged.sort_values(
+    by=["match_id", "SetNo", "GameNo", "PointNumber"]
+).reset_index(drop=True)
+
 # ---- Score Reconstruction ----
 
 score_values = ['0', '15', '30', '40']
 
 def track_match_state(df):
-    df = df.sort_values(['SetNo', 'GameNo', 'PointNumber']).copy()
+    df = df.sort_values(['match_id', 'SetNo', 'GameNo', 'PointNumber']).copy()
 
     current_match_id = None
     prev_set_no = prev_game_no = None
@@ -138,78 +152,56 @@ def track_match_state(df):
     return df
 
 def reconstruct_scores(df):
+    df = df.sort_values(['match_id', 'SetNo', 'GameNo', 'PointNumber']).copy()
     scores, server_scores, returner_scores = [], [], []
     p1_scores, p2_scores = [], []
+
     p1_points = p2_points = 0
     p1_adv = p2_adv = False
+    current_match_id = None
     prev_set_no = prev_game_no = None
     p1_games = p2_games = 0
 
     score_values = {0: "0", 1: "15", 2: "30", 3: "40", 4: "AD"}
 
     for _, row in df.iterrows():
-        set_no, game_no, winner, server = row['SetNo'], row['GameNo'], row['PointWinner'], row['PointServer']
+        match_id, set_no, game_no, winner, server = row['match_id'], row['SetNo'], row['GameNo'], row['PointWinner'], row['PointServer']
 
-        # New game
-        if prev_game_no is not None and game_no != prev_game_no:
-            if winner == 1:
-                p1_games += 1
-            elif winner == 2:
-                p2_games += 1
+        # Reset at new match
+        if match_id != current_match_id:
+            current_match_id = match_id
             p1_points = p2_points = 0
             p1_adv = p2_adv = False
-
-        # New set
-        if prev_set_no is not None and set_no != prev_set_no:
             p1_games = p2_games = 0
+            prev_set_no = prev_game_no = None
+
+        # Reset at new set
+        if prev_set_no is not None and set_no != prev_set_no:
+            p1_points = p2_points = 0
+            p1_adv = p2_adv = False
+            p1_games = p2_games = 0
+
+        if prev_game_no is not None and game_no != prev_game_no:
             p1_points = p2_points = 0
             p1_adv = p2_adv = False
 
-        in_tiebreak = (p1_games == 6 and p2_games == 6)
-
-        # Determine raw score strings for P1 and P2
-        if in_tiebreak:
-            p1_score_str = str(p1_points)
-            p2_score_str = str(p2_points)
-        else:
-            if p1_points >= 3 and p2_points >= 3:
-                if p1_adv:
-                    p1_score_str = "AD"
-                    p2_score_str = "40"
-                elif p2_adv:
-                    p1_score_str = "40"
-                    p2_score_str = "AD"
-                elif p1_points == p2_points:
-                    p1_score_str = "40"
-                    p2_score_str = "40"
-                else:
-                    p1_score_str = score_values.get(min(p1_points, 3), "0")
-                    p2_score_str = score_values.get(min(p2_points, 3), "0")
-            else:
-                p1_score_str = score_values.get(min(p1_points, 3), "0")
-                p2_score_str = score_values.get(min(p2_points, 3), "0")
-
-        # Map scores according to server
+        # ---- RECORD PRE-POINT SCORE ----
         if server == 1:
-            server_score_str = p1_score_str
-            returner_score_str = p2_score_str
+            server_score_str = score_values.get(min(p1_points, 3), "0") if not (p1_points >= 3 and p2_points >= 3 and p1_adv) else ("AD" if p1_adv else score_values.get(min(p1_points,3),"0"))
+            returner_score_str = score_values.get(min(p2_points, 3), "0") if not (p1_points >= 3 and p2_points >= 3 and p2_adv) else ("AD" if p2_adv else score_values.get(min(p2_points,3),"0"))
         else:
-            server_score_str = p2_score_str
-            returner_score_str = p1_score_str
+            server_score_str = score_values.get(min(p2_points, 3), "0") if not (p1_points >= 3 and p2_points >= 3 and p2_adv) else ("AD" if p2_adv else score_values.get(min(p2_points,3),"0"))
+            returner_score_str = score_values.get(min(p1_points, 3), "0") if not (p1_points >= 3 and p2_points >= 3 and p1_adv) else ("AD" if p1_adv else score_values.get(min(p1_points,3),"0"))
 
-        score_str = f"{server_score_str}-{returner_score_str}"
-
-        # Append Player 1 and Player 2 scores as is
-        p1_scores.append(p1_score_str)
-        p2_scores.append(p2_score_str)
-
-        # Append scores
-        scores.append(score_str)
+        scores.append(f"{server_score_str}-{returner_score_str}")
         server_scores.append(server_score_str)
         returner_scores.append(returner_score_str)
+        p1_scores.append(score_values.get(min(p1_points, 3), "0"))
+        p2_scores.append(score_values.get(min(p2_points, 3), "0"))
 
+        # ---- UPDATE POINTS AFTER RECORDING ----
+        in_tiebreak = (p1_games == 6 and p2_games == 6)
 
-        # Update points after the current point winner
         if in_tiebreak:
             if winner == 1:
                 p1_points += 1
@@ -259,6 +251,7 @@ def reconstruct_scores(df):
 
     return df
 
+
 def add_is_tiebreak_column(df):
     """
     Add a boolean 'is_tiebreak' column.
@@ -266,14 +259,35 @@ def add_is_tiebreak_column(df):
     df['is_tiebreak'] = ((df['P1_Games_Won'] == 6) & (df['P2_Games_Won'] == 6))
     return df
 
-
+def parse_match_id(match_id):
+    match_id = str(match_id)
+    
+    # Check for MS/WS format
+    m = re.search(r'-(MS|WS)(\d+)$', match_id)
+    if m:
+        best_of = 5 if m.group(1) == 'MS' else 3  # Men = 5 sets, Women = 3 sets
+        round_num = int(m.group(2)[0])  # first digit after MS/WS
+        return pd.Series([best_of, round_num])
+    
+    # Fallback for numeric IDs (e.g., 2020-ausopen-1201)
+    m2 = re.search(r'(\d{4})$', match_id)
+    if m2:
+        last4 = m2.group(1)
+        gender_digit = int(last4[0])  # 1 = men, 2 = women
+        best_of = 5 if gender_digit == 1 else 3
+        round_num = int(last4[1])  # second digit as round
+        return pd.Series([best_of, round_num])
+    
+    # If nothing matches
+    return pd.Series([np.nan, np.nan])
 
 merged = merged.groupby('match_id', group_keys=False)\
                .apply(track_match_state).reset_index(drop=True)
 
 
 merged = merged.groupby(['match_id', 'SetNo', 'GameNo'], group_keys=False)\
-                 .apply(lambda group: reconstruct_scores(group)).reset_index(drop=True)
+               .apply(lambda group: reconstruct_scores(group)).reset_index(drop=True)
+
 
 keep_cols = ['match_id','SetNo','GameNo','PointNumber','PointWinner','PointServer',	'P1Score','P2Score','tournament','year','player1','player2',
              'P1_Sets_Won','P2_Sets_Won','P1_Games_Won','P2_Games_Won','score','P1Score_Pre','P2Score_Pre'
@@ -360,7 +374,14 @@ merged['player2_return_point_win_pct'] = merged['player2_return_point_win_pct'].
 
 merged['next_GameNo'] = merged.groupby(['match_id', 'SetNo'])['GameNo'].shift(-1)
 merged['is_last_point_of_game'] = merged['GameNo'] != merged['next_GameNo']
+# Standard game winner
 merged['GameWin'] = np.where(merged['is_last_point_of_game'], merged['PointWinner'], np.nan)
+
+# Step 3: Add the is_tiebreak column
+merged = add_is_tiebreak_column(merged)
+
+# Correct for tiebreaks: last point of the tiebreak wins the game
+merged.loc[merged['is_tiebreak'], 'GameWin'] = merged.groupby(['match_id','SetNo','GameNo'])['PointWinner'].transform('last')
 merged.drop(columns=['next_GameNo', 'is_last_point_of_game'], inplace=True)
 
 
@@ -388,10 +409,6 @@ def overwrite_tiebreak_scores(df):
     
     return df
 
-
-# Step 3: Add the is_tiebreak column
-merged = add_is_tiebreak_column(merged)
-
 # Separate tiebreak and non-tiebreak rows
 tiebreak_rows = merged[merged['is_tiebreak']].copy()
 non_tiebreak_rows = merged[~merged['is_tiebreak']].copy()
@@ -401,6 +418,25 @@ tiebreak_rows = overwrite_tiebreak_scores(tiebreak_rows)
 
 # Combine back together and sort
 merged = pd.concat([non_tiebreak_rows, tiebreak_rows]).sort_values(by=['match_id', 'SetNo', 'GameNo', 'PointNumber']).reset_index(drop=True)
+
+# Apply best_of_5 and round columns to the dataframe
+merged[['best_of_5', 'round']] = merged['match_id'].apply(parse_match_id)
+
+# --- Add match winner ---
+# Take the last point of each match to determine who won more sets
+match_winners = merged.groupby('match_id').tail(1).copy()
+match_winners['match_winner'] = np.where(
+    match_winners['PointWinner'] == 1,
+    match_winners['player1'],
+    match_winners['player2']
+)
+
+# Merge back the match winner to the full dataframe
+merged = merged.merge(
+    match_winners[['match_id', 'match_winner']],
+    on='match_id',
+    how='left'
+)
 
 # Save to CSV
 merged.to_csv("data/processed/merged_tennis_data.csv", index=False)
