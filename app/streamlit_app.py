@@ -30,32 +30,6 @@ TOURNAMENTS_SIDEBAR = ["All"] + list(TOURNAMENTS_MAP.values())
 GENDERS = ["All", "Men", "Women"]
 TOURS = ["All", "ATP", "WTA"]
 
-
-# -----------------------
-# Data initialization / load
-# -----------------------
-def initialize_duckdb_from_csv():
-    need_init = False
-    if not os.path.exists(DUCKDB_FILE):
-        need_init = True
-    else:
-        con = duckdb.connect(DUCKDB_FILE)
-        tables = con.execute("SHOW TABLES").fetchall()
-        con.close()
-        if (TABLE_NAME,) not in tables:
-            need_init = True
-
-    if need_init:
-        st.sidebar.info(f"Initializing DuckDB from CSV '{CSV_FILE}' — this might take a moment.")
-        df_csv = pd.read_csv(CSV_FILE)
-        con = duckdb.connect(DUCKDB_FILE)
-        con.execute(f"CREATE OR REPLACE TABLE {TABLE_NAME} AS SELECT * FROM df_csv")
-        con.close()
-        st.sidebar.success("DuckDB initialized successfully!")
-
-# call once (no caching)
-initialize_duckdb_from_csv()
-
 @st.cache_data(show_spinner=False)
 def load_df_from_duckdb():
     con = duckdb.connect(DUCKDB_FILE)

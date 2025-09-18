@@ -9,7 +9,10 @@ data/processed/
 # merged_tennis_data.csv stays ignored
 
 #*.db
+# Ignore DuckDB everywhere except outputs/
+# DuckDB files
 *.duckdb
+!outputs/*.duckdb   # allow duckdb files in outputs/
 *.sqlite
 outputs/all_points_with_importance_local.csv
 outputs/all_points_with_importance.csv
