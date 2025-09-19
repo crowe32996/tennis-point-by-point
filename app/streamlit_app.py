@@ -878,7 +878,7 @@ with tab2:
 
         # Merge basic match info (year, player1, player2)
         clutch_agg = clutch_agg.merge(
-            df[["match_id", "year", "player1", "player2"]].drop_duplicates(),
+            df[["match_id", "year", "tourney_code","player1", "player2"]].drop_duplicates(),
             on="match_id",
             how="left"
         )
