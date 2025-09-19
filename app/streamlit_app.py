@@ -875,8 +875,6 @@ with tab2:
             clutch_df.groupby(["match_id", "player"], as_index=False)
             .agg({"Total_Clutch_Score": "sum"})
         )
-        print(df.columns.tolist())
-        st.write("Columns in df:", df.columns.tolist())
 
         # Merge basic match info (year, player1, player2)
         clutch_agg = clutch_agg.merge(
