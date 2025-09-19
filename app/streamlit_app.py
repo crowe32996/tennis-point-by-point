@@ -112,6 +112,7 @@ def apply_filters(df, selected_tourney, selected_tour, selected_years):
 
 IOC_TO_ISO2 = {
     "SUI": "CH",
+    "DEN": "DK",
     "GER": "DE",
     "BLR": "BY",
     "POL": "PL",
@@ -882,16 +883,19 @@ with tab2:
             how="left"
         )
 
+        # Map tournament codes to friendly names
+        clutch_agg["Tournament"] = clutch_agg["tourney_code"].map(TOURNAMENTS_MAP).fillna(clutch_agg["tourney_code"])
+
         # Sort by total clutch score and take top 10
         clutch_agg = clutch_agg.sort_values("Total_Clutch_Score", ascending=False).head(10)
 
         clutch_display = clutch_agg.rename(columns={
-            "player": "Player",
+            "player": "Match Winner",
             "Total_Clutch_Score": "Clutch Score",
             "year": "Year",
             "player1": "Player 1",
             "player2": "Player 2"
-        })[["Year", "Player 1", "Player 2", "Player", "Clutch Score"]]
+        })[["Year", "Tournament", "Player 1", "Player 2", "Match Winner", "Clutch Score"]]
 
         st.dataframe(
             clutch_display.reset_index(drop=True).style.format({"Clutch Score": "{:.3f}"}),
