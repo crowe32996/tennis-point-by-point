@@ -9,7 +9,6 @@ os.environ["PYSPARK_DRIVER_PYTHON"] = r"C:\Users\peppe\AppData\Local\Programs\Py
 os.environ["HADOOP_HOME"] = r"C:\hadoop\hadoop-3.3.6"
 os.environ["PATH"] = r"C:\hadoop\hadoop-3.3.6\bin;" + os.environ["PATH"]
 
-
 import pandas as pd
 import duckdb
 import simulations.point_importance_simulation as pis

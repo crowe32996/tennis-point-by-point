@@ -37,6 +37,7 @@ def build_player_country_map(tour="atp"):
 build_player_country_map("atp")
 build_player_country_map("wta")
 
+# hard-coded player name exceptions
 player_country_map["A. Ramos Vinolas"] = player_country_map.pop("A. Ramos", "ESP")
 player_country_map["C. O'Connell"] = player_country_map.pop("C. Oconnell", "IRL")
 player_country_map["F. Auger-Aliassime"] = player_country_map.pop("F. Auger Aliassime", "CAN")

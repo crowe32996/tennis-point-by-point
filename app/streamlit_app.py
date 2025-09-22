@@ -37,14 +37,11 @@ def load_df_from_duckdb():
     con.close()
     return df
 
-# -----------------------
 # Helper functions
-# -----------------------
 def capitalize_name(name):
     parts = name.split()
     capitalized_parts = []
     for part in parts[1:]:
-        # Handle both apostrophes and dashes
         for sep in ["'", "-"]:
             if sep in part:
                 subparts = part.split(sep)
@@ -64,11 +61,8 @@ def add_basic_columns(df):
         )
         df["p2_wp_delta"] = -df["p1_wp_delta"]
 
-    # gender extraction from match_id end (existing approach)
-    # protect against missing values
     df["gender"] = df["match_id"].astype(str).str.extract(r"(\d{4})$")[0].str[0]
     df["gender"] = df["gender"].map({"1": "Men", "2": "Women"})
-    # After adding the gender column
     df["Tour"] = df["gender"].map({"Men": "ATP", "Women": "WTA"})
     df["player1"] =df['player1'].apply(
         lambda x: x.split()[0] + ' ' + ' '.join([w.capitalize() for w in x.split()[1:]])
@@ -132,7 +126,7 @@ IOC_TO_ISO2 = {
     "NMI": "MP",
     "POC": "XK",
     "IRI": "IR"
-    # add others as needed
+    # countries where first two letters are not iso2 code
 }
 def ioc_to_flag(ioc_code):
     iso2 = IOC_TO_ISO2.get(ioc_code, ioc_code[:2].upper())
@@ -200,14 +194,8 @@ def render_flag_table(df, player_col="Player", numeric_cols=None, max_height=400
 
     st.markdown(html, unsafe_allow_html=True)
 
-# -----------------------
-# Cached computation functions (heavy things)
-# -----------------------
 @st.cache_data
 def compute_player_deltas(df):
-    # -------------------------
-    # Build delta_df for both players
-    # -------------------------
     p1_df = df[["player1", "p1_wp_delta", "is_high_pressure", "Tour"]].rename(
         columns={"player1": "player", "p1_wp_delta": "wp_delta"}
     )
@@ -219,9 +207,7 @@ def compute_player_deltas(df):
 
     high_pressure_df = delta_df[delta_df["is_high_pressure"]]
 
-    # -------------------------
     # Aggregate deltas
-    # -------------------------
     player_delta_summary_all = (
         delta_df.groupby("player")
         .agg(
@@ -243,15 +229,12 @@ def compute_player_deltas(df):
         .reset_index()
     )
 
-    # -------------------------
     # Merge all together
-    # -------------------------
     player_delta_summary = player_delta_summary_all.merge(
         player_delta_summary_hp, on="player", how="left"
     ).fillna(0)
 
     return player_delta_summary
-
 
 @st.cache_data
 def compute_clutch_rankings(df, perspective="All", min_hp_points=20):
@@ -325,7 +308,6 @@ def compute_top_points(df, top_n=10):
     )
     top_points = df_local.nlargest(top_n, "abs_wp_delta").copy()
     
-    # add tournament pretty name
     top_points[["year", "tourney_code", "match_num"]] = top_points["match_id"].str.split("-", n=2, expand=True)
     top_points["tournament_name"] = top_points["tourney_code"].map(TOURNAMENTS_MAP).fillna(top_points["tourney_code"])
     return top_points
@@ -510,19 +492,15 @@ def compute_player_clutch_aggregate(match_clutch_df):
     ).reset_index()
 
 def make_score_heatmap(df):
-    # expects df with server_score_val & returner_score_val & win_col in caller; we'll take from caller instead
-    # Provide a simple placeholder to avoid errors if not used
     return alt.Chart(pd.DataFrame({"x": [], "y": []})).mark_rect()
 
-# -----------------------
 # Streamlit UI
-# -----------------------
 st.set_page_config(layout="wide", page_title="Tennis Clutch Dashboard")
 
 st.title("🎾 ATP/WTA Tennis Clutch Performers")
 st.markdown("Analyze which players have **thrived** or **struggled** under pressure in Grand Slam matches since 2020.")
 
-# load raw DF (cached)
+# load raw DF
 raw_df = load_df_from_duckdb()
 raw_df = add_basic_columns(raw_df)
 
@@ -554,7 +532,6 @@ if "is_high_pressure" not in df.columns:
 # Sidebar: minimum high pressure points
 max_hp_points = int(df["is_high_pressure"].sum())
 
-
 # default to 200 or max available if less than 200
 default_hp_points = min(200, max_hp_points)
 
@@ -579,19 +556,13 @@ df["server_win"] = df["server_point_win"]
 df["returner_win"] = ~df["server_point_win"]
 
 
-# -----------------------
-# Tabs: create them
-# -----------------------
 tab0, tab1, tab2, tab3 = st.tabs(["Clutch Summary", "Clutch Player Stats", "Extreme Events", "Game Score Stats"])
 
-# ---- TAB 1: Clutch Player Rankings ----
-# ---- TAB 1: Clutch Player Rankings ----
 # ---- TAB 1: Clutch Player Rankings ----
 with tab0:
     st.subheader("Players with Most & Least Clutch Performance")
 
     # Use the total clutch ranking from tab1
-    # Compute total clutch per player (if not already available)
     match_clutch_df = compute_match_player_clutch(df)
     if not match_clutch_df.empty:
         total_clutch = match_clutch_df.groupby("player")["Total_Clutch_Score"].sum().reset_index()
@@ -599,8 +570,6 @@ with tab0:
             "player": "Player",
             "Total_Clutch_Score": "Total Clutch Score"
         })
-
-        # Sort descending and ascending
         clutch_desc = total_clutch.sort_values("Total Clutch Score", ascending=False).head(10)
         clutch_asc = total_clutch.sort_values("Total Clutch Score", ascending=True).head(10)
 
@@ -684,8 +653,6 @@ with tab0:
 
 with tab1:
     st.subheader("📈 Player Clutch Scores (Best & Worst Matches)")
-
-    # Compute match-level clutch
     match_clutch_df = compute_match_player_clutch(df)
 
     if not match_clutch_df.empty:
@@ -809,7 +776,6 @@ with tab1:
         }),
         use_container_width=True
     )
-
 
 # ---- TAB 2: Extreme Events ----
 with tab2:
