@@ -5,7 +5,6 @@ import duckdb
 import os
 import altair as alt
 from pathlib import Path
-from memory_profiler import profile
 
 # Base directory is the repo root
 BASE_DIR = Path(__file__).resolve().parent.parent  # adjust if needed
