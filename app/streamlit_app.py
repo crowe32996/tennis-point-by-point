@@ -5,6 +5,7 @@ import duckdb
 import os
 import altair as alt
 from pathlib import Path
+from memory_profiler import profile
 
 # Base directory is the repo root
 BASE_DIR = Path(__file__).resolve().parent.parent  # adjust if needed
@@ -28,12 +29,49 @@ TOURNAMENTS_MAP = {
 TOURNAMENTS_SIDEBAR = ["All"] + list(TOURNAMENTS_MAP.values())
 
 GENDERS = ["All", "Men", "Women"]
-TOURS = ["All", "ATP", "WTA"]
+#TOURS = ["All", "ATP", "WTA"] removed All option
+TOURS = ["ATP", "WTA"]
+default_tour = "ATP"  # Change to "WTA" if you want WTA default
+
 
 @st.cache_data(show_spinner=False)
-def load_df_from_duckdb():
+def load_df_from_duckdb(selected_tour="ATP"):
     con = duckdb.connect(DUCKDB_FILE)
-    df = con.execute(f"SELECT * FROM {TABLE_NAME}").df()
+    
+    if selected_tour == "ATP":
+        where_clause = "WHERE (match_id LIKE 'MS%' OR substr(match_id, -4, 1) = '1')"
+    else:  # WTA
+        where_clause = "WHERE (match_id LIKE 'WS%' OR substr(match_id, -4, 1) = '2')"
+    query = f"""
+    SELECT
+        match_id,
+        PointWinner,
+        PointServer,
+        tournament,
+        year,
+        player1,
+        player2,
+        P1_Sets_Won,
+        P2_Sets_Won,
+        P1_Games_Won,
+        P2_Games_Won,
+        score,
+        server_point_win,
+        server_name,
+        returner_name,
+        return_point_win,
+        points_stake,
+        p1_win_prob_before,
+        p1_win_prob_if_p1_wins,
+        p1_win_prob_if_p2_wins,
+        importance,
+        p1_wp_delta,
+        p2_wp_delta,
+        match_winner
+    FROM {TABLE_NAME}
+    {where_clause}
+    """
+    df = con.execute(query).df()
     con.close()
     return df
 
@@ -445,40 +483,32 @@ def compute_match_player_clutch(df):
         - total_clutch_score
         - high_pressure_points
     """
-    results = []
+    df_long = pd.concat([
+        df.assign(player=df['player1'],
+                  player_wp_delta=df['p1_wp_delta'],
+                  points_stake=df['points_stake'],
+                  importance=df['importance'],
+                  is_high_pressure=df['is_high_pressure']),
+        df.assign(player=df['player2'],
+                  player_wp_delta=df['p2_wp_delta'],
+                  points_stake=df['points_stake'],
+                  importance=df['importance'],
+                  is_high_pressure=df['is_high_pressure'])
+    ], ignore_index=True)
 
-    # Ensure 'tourney_code' exists
-    if "tourney_code" not in df.columns:
-        df["tourney_code"] = df["match_id"].astype(str).str.split("-", n=2).str[1]
+    # Compute clutch score per point (vectorized)
+    df_long['clutch_score'] = df_long['player_wp_delta'] * df_long['importance'] * df_long['points_stake']
 
-    # Iterate over matches
-    for match_id, group in df.groupby("match_id"):
-        tourney_code = group["tourney_code"].iloc[0]  # <-- get tourney_code for this match
-        players = [group["player1"].iloc[0], group["player2"].iloc[0]]
-        
-        for player in players:
-            # Determine which WP delta column corresponds to this player
-            group = group.copy()
-            group["player_wp_delta"] = group.apply(
-                lambda row: row["p1_wp_delta"] if player == row["player1"] else row["p2_wp_delta"], axis=1
-            )
+    # Keep only necessary columns for aggregation
+    df_long = df_long[['match_id', 'player', 'clutch_score', 'is_high_pressure', 'tourney_code']]
 
-            # Compute clutch score per point
-            group["clutch_score"] = group["player_wp_delta"] * group["importance"] * group["points_stake"]
+    # Aggregate per match, per player
+    results = df_long.groupby(['match_id', 'player', 'tourney_code'], observed=True).agg(
+        Total_Clutch_Score=('clutch_score', 'sum'),
+        High_Pressure_Points=('is_high_pressure', 'sum')
+    ).reset_index()
 
-            # Aggregate per match
-            total_clutch = group["clutch_score"].sum()
-            hp_points = group["is_high_pressure"].sum()
-
-            results.append({
-                "match_id": match_id,
-                "player": player,
-                "Total_Clutch_Score": total_clutch,
-                "High_Pressure_Points": hp_points,
-                "tourney_code": tourney_code
-            })
-
-    return pd.DataFrame(results)
+    return results
 
 @st.cache_data
 def compute_player_clutch_aggregate(match_clutch_df):
@@ -500,16 +530,24 @@ st.set_page_config(layout="wide", page_title="Tennis Clutch Dashboard")
 st.title("🎾 ATP/WTA Tennis Clutch Performers")
 st.markdown("Analyze which players have **thrived** or **struggled** under pressure in Grand Slam matches since 2020.")
 
+# Sidebar filters (one place)
+st.sidebar.header("Filters")
+selected_tour = st.sidebar.selectbox("Tour", TOURS, index=0, key="tour_select")
+
 # load raw DF
-raw_df = load_df_from_duckdb()
+raw_df = load_df_from_duckdb(selected_tour)
 raw_df = add_basic_columns(raw_df)
 
 # Extract year for filtering (ensure integer type)
 raw_df["year"] = raw_df["match_id"].astype(str).str.split("-").str[0].astype(int)
+
+# Ensure 'tourney_code' exists
+if "tourney_code" not in raw_df.columns:
+    raw_df["tourney_code"] = raw_df["match_id"].astype(str).str.split("-", n=2).str[1]
+
 available_years = sorted(raw_df["year"].unique())
 
-# Sidebar filters (one place)
-st.sidebar.header("Filters")
+
 selected_year_range = st.sidebar.select_slider(
     "Select Year Range",
     options=available_years,
@@ -518,7 +556,6 @@ selected_year_range = st.sidebar.select_slider(
 # Convert the slider range tuple into a list of years
 selected_years = list(range(selected_year_range[0], selected_year_range[1] + 1))
 #selected_gender = st.sidebar.selectbox("Gender", GENDERS, index=0, key="gender_select")
-selected_tour = st.sidebar.selectbox("Tour", TOURS, index=0, key="tour_select")
 selected_tourney = st.sidebar.selectbox("Tournament", TOURNAMENTS_SIDEBAR, index=0, key="tourney_select")
 pressure_threshold = st.sidebar.slider("Importance Threshold (Top N% of Point Probability +/-)", min_value=1, max_value=50, value=25, key="pressure_thr")
 
