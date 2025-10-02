@@ -53,7 +53,7 @@ The difference between the match probabilities in these scenarios is defined as 
 
 
 
-## Overview
+## File Overview
 
 The project consists of the following components:
 
@@ -83,12 +83,12 @@ The project consists of the following components:
 
 ---
 
-## How to Run
+## How to Run Locally
 
 ### Requirements
 
 - Python 3.8+
-- Packages: `pandas`, `numpy`, `numba`, `duckdb`, `streamlit`, `altair`, `re` (standard)
+- Packages: `pandas`, `numpy`, `numba`, `duckdb`, `streamlit`, `altair`, `re`
 
 Install dependencies via pip:
 
