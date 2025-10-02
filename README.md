@@ -1,10 +1,8 @@
 # Tennis Pressure Simulation Project 🎾
 
-## Streamlit App
+[Open Streamlit App](https://tennis-point-by-point-m8ybckcbdtzd7thhbpgtme.streamlit.app/)
 ![Streamlit App](images/streamlit_preview1.png)
 ![Streamlit App](images/streamlit_preview2.png)
-
-[Open Streamlit App](https://tennis-point-by-point-m8ybckcbdtzd7thhbpgtme.streamlit.app/)
 
 ## Methodology
 
