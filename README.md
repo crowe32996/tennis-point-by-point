@@ -1,5 +1,11 @@
 # Tennis Pressure Simulation Project 🎾
 
+## Streamlit App
+![Streamlit App](images/streamlit_preview1.png)
+![Streamlit App](images/streamlit_preview2.png)
+
+[Open Streamlit App](https://tennis-point-by-point-52524ann5ef7v8ixz69lt9.streamlit.app/)
+
 ## Methodology
 
 ### Overview
@@ -45,10 +51,7 @@ The difference between the match probabilities in these scenarios is defined as 
 
 ---
 
-## Tennis Pressure-Point Dashboard
-![Streamlit Dashboard](images/streamlit_preview.png)
 
-[Open Streamlit App](https://tennis-point-by-point-52524ann5ef7v8ixz69lt9.streamlit.app/)
 
 ## Overview
 
