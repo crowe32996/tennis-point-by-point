@@ -55,7 +55,7 @@ The difference between the match probabilities in these scenarios is defined as 
 
 ## Overview
 
-The project consists of four main components:
+The project consists of the following components:
 
 1. **`prepare_data.py`**  
    Prepares and cleans the raw tennis match datasets, reconstructs game scores and match states, and outputs a merged CSV ready for simulation.
@@ -66,42 +66,20 @@ The project consists of four main components:
 3. **`main_full_run.py`**  
    Runs the importance simulation over the entire dataset in chunks (to handle large files efficiently), and saves the enriched results with importance scores into a DuckDB database and an output CSV.
 
-4. **`streamlit_app.py`**  
-   A Streamlit web app to interactively explore the simulation results. It lets users filter by tournament, gender, perspective (serve/return), and see which players thrive or struggle under pressure with tables and visualizations.
+4. **`transform.py`**  
+   Loads the DuckDB, and performs database transformations to restructure data and create tables in DuckDB, performing aggregations and getting data ready for efficient querying.
 
----
+4. **`data.py`**  
+   Runs transformations and creates functions for loading data for each tab of the streamlit application.
 
-## File Details
+4. **`data_processing.py`**  
+   Contains all major Python aggregations and calculations on measuring clutchness, consistency, etc.
 
-### 1. `prepare_data.py`
+4. **`utils.py`**  
+   Compiles helper functions in rendering html and images, applying filters, etc.
 
-- Parses raw tennis data files.
-- Reconstructs match scoring sequences (points, games, sets).
-- Adds calculated columns needed for simulations.
-- Outputs a merged, cleaned CSV (`merged_tennis_data.csv`) to be used by simulations.
-
-### 2. `point_importance_simulation.py`
-
-- Uses `numba` for fast Monte Carlo simulation of tennis matches at the point level.
-- Simulates games, tiebreaks, sets, and full matches based on player serve/return win probabilities.
-- Calculates **point importance**: difference in probability of winning the match if player wins vs loses that point.
-- Provides functions to apply simulations row-wise on match point dataframes.
-
-### 3. `main_full_run.py`
-
-- Loads the prepared CSV in chunks to avoid memory overload.
-- Filters and cleans data (e.g., ensures valid point numbers).
-- Runs importance simulations on each chunk with configurable simulation counts.
-- Stores results incrementally in a DuckDB database for fast querying.
-- Exports a full CSV file (`all_points_with_importance.csv`) with the importance scores added.
-
-### 4. `streamlit_app.py`
-
-- Loads results from DuckDB or CSV.
-- Provides user controls for filtering by tournament, gender, and perspective (serve/return/all).
-- Calculates clutch statistics per player — how their performance changes under pressure.
-- Displays top/worst performers and heatmaps of win rates by game score.
-- Interactive UI powered by Streamlit and Altair.
+4. **`app.py`**  
+   A Streamlit web app to interactively explore the simulation results. It lets users filter by year, tour (ATP/WTA), tournament, and minimum points played threshold to see which players thrive or struggle under pressure.
 
 ---
 
@@ -138,30 +116,12 @@ Step 3: Launch Interactive Explorer
 Start the Streamlit app to explore results:
 
 ```bash
-streamlit run streamlit_app.py
+streamlit run app.py
 ```
 
 Open the URL shown in your terminal (http://localhost:8501)
 
 ---
-
-## Screenshots
-
-### Summarizing the Most and Least Clutch Players
-![Clutch Summary](images/clutch_summary.png)
-
----
-
-### Players Most and Least Often Under Pressure
-![Under Pressure](images/pct_of_pressure_points.png)
-
----
-
-### Players with Most Unlikely Outcomes
-![Unlikely Outcomes](images/unlikely_outcomes.png)
-
----
-
 
 Notes
 
@@ -169,8 +129,5 @@ Notes
 
 - N_SIMULATIONS parameter in main_full_run.py controls simulation accuracy vs speed.
 
-- DuckDB enables efficient querying on large result datasets.
-
-- The app’s “Clutch Delta” measures how much better or worse a player performs on high-pressure points compared to average.
-
+- Future iterations will aim to incorporate lower-level matches outside of Grand Slams for larger sample size
 
