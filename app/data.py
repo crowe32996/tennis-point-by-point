@@ -10,7 +10,7 @@ if not (BASE_DIR / "data").exists():
     BASE_DIR = Path(__file__).resolve().parent  # fallback for cloud
 
 DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
-OUTPUT_FILE = BASE_DIR / "outputs" / "table_preview.xlsx"
+# OUTPUT_FILE = BASE_DIR / "outputs" / "table_preview.xlsx"
 
 # Connect to DuckDB
 con = duckdb.connect(DUCKDB_FILE)
@@ -29,12 +29,12 @@ for table in tables:
 
 con.close()
 
-# Write to Excel, each table in a separate sheet
-with pd.ExcelWriter(OUTPUT_FILE, engine='xlsxwriter') as writer:
-    for table, df in preview_data.items():
-        df.to_excel(writer, sheet_name=table, index=False)
+# # Write to Excel, each table in a separate sheet
+# with pd.ExcelWriter(OUTPUT_FILE, engine='xlsxwriter') as writer:
+#     for table, df in preview_data.items():
+#         df.to_excel(writer, sheet_name=table, index=False)
 
-print(f"Preview saved to {OUTPUT_FILE}")
+# print(f"Preview saved to {OUTPUT_FILE}")
 
 TABLE_NAME = "importance_results"
 
