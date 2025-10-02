@@ -536,7 +536,7 @@ for i, tab in enumerate(tabs):
             render_tab2()
         else:
             st.header("Methodology")
-            st.markdown("**Overview**\n\nThis pipeline measures player behaviour at the point level using a win-probability model and Monte Carlo simulation. Each point is simulated 3,000 times to estimate impact on match win probability.")
+            st.markdown("**Overview**\n\nThis project aims to quantify subjective measures of consistency and clutchness of tennis players, using a win-probability model and Monte Carlo simulations at each point of all matches. Each point is simulated 3,000 times to estimate impact on match win probability.")
             st.subheader("How we simulate a point")
             st.markdown("""
             - For each recorded point, 1000 full match simulations are calculated, estimating probabilities before the point, and if either player wins the point, to quantify the "importance" of the point. 
