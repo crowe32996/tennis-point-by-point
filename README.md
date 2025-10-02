@@ -1,12 +1,47 @@
 # Tennis Pressure Simulation Project 🎾
 
-This project analyzes tennis match data at the **point-by-point** level at Grand Slam matches from 2020-2024, using Monte Carlo simulations to estimate the *importance* of each point in a match. The goal is to identify which players perform best or worst under pressure by simulating match outcomes based on serve/return win probabilities and match state. 
+## Methodology
 
-The data sources are csv files produced by Jeff Sackmann (https://github.com/JeffSackmann/tennis_slam_pointbypoint), and are manipulated to get current match state, and determine the level of importance of the point. 1000 full-match simulations are run per point based on the current match score, and for if each player wins that given point, for a total of 3000 points per simulation, or roughly 1.8B simulations across the ~600K Grand Slam points in the dataset. The difference between those probabilities is what I am defining as the point importance, or the probability swing associated with that point. The simulation probabilities can vary from run to run, but are normalized as the number of simulations increase.
+### Overview
+This project aims to quantify subjective measures of **consistency** and **clutchness** of tennis players, using a win-probability model and Monte Carlo simulations at each point of all matches.  
+Each point is simulated **3,000 times** to estimate impact on match win probability.
 
-The *Clutch Score* of a player is determined as a function of each players' aggregate point *importance*, *win probability delta* (which is the positive or negative win probability change from each point), and the ATP/WTA points at stake in the given match. For example, keeping *importance* and *win probability delta* constant, a point played in a Grand Slam final will hold much more weight than one in the first round.
+---
 
-The streamlit app visualizes the findings of these simulations, and highlights players who fare better or worse than their overall average when facing points of higher importance. The user can set the threshold of point importance, as well as chosing to look at performance of players when on server, on returner, or both. 
+### Point Simulations
+For each recorded point, **3,000 full match simulations** are calculated to determine each player's probability of winning the match.  
+
+The 3,000 simulations fall into 3 buckets (1,000 simulations each):
+
+- **Probability before the point**  
+- **Probability if player 1 wins the point**  
+- **Probability if player 2 wins the point**  
+
+The difference between the match probabilities in these scenarios is defined as the **point importance**.
+
+---
+
+### Key Metrics
+- **Expected Points Added (Clutchness):**  
+  Estimated ATP/WTA points gained or lost compared to the player's normal level.  
+  Calculated as the product of each player’s win probability added/lost per point, the importance of those points, and the ATP/WTA points at stake in the given match.  
+
+- **Consistency:**  
+  A measure of how high a player’s win probability is throughout matches and how stable those probabilities remain.  
+  Calculated as the normalized product of the mean win probability added times the inverse of the standard deviation of the win probability change per point.  
+
+- **High Pressure Points:**  
+  Defined as the **top quartile (25%)** of points by importance.  
+
+---
+
+### Assumptions
+- Simulation count can be increased for higher accuracy, but **1,000 per scenario (3,000 per point)** was chosen to balance scale and accuracy.  
+- Small-sample players may be noisy, so a minimum threshold is applied:  
+  - **400 points per year** for ATP  
+  - **200 points per year** for WTA  
+
+---
 
 ---
 
