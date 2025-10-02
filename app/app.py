@@ -7,7 +7,6 @@ from utils import add_basic_columns, filter_matches_by_sets, apply_filters, add_
 from data_processing import compute_player_deltas, compute_match_player_consistency, compute_clutch_rankings, compute_high_pressure_pct, compute_top_points, compute_unlikely_matches, compute_score_summary, compute_match_player_clutch, compute_player_clutch_aggregate
 from streamlit.components.v1 import html as components_html
 import altair as alt
-import psutil
 import os
 from transform import transform_tables
 import duckdb
@@ -24,12 +23,6 @@ DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
 
 # --- Load data / mapping once ---
 player_flag_map = st.cache_data(load_player_flag_map)()  # cached, read once per session
-
-
-def print_memory(note=""):
-    process = psutil.Process(os.getpid())
-    mem_mb = process.memory_info().rss / 1024**2  # Resident Set Size in MB
-    st.text(f"[MEMORY] {note} - {mem_mb:.2f} MB")
 
 
 @st.cache_data
