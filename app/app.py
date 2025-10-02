@@ -537,17 +537,22 @@ for i, tab in enumerate(tabs):
         else:
             st.header("Methodology")
             st.markdown("**Overview**\n\nThis project aims to quantify subjective measures of consistency and clutchness of tennis players, using a win-probability model and Monte Carlo simulations at each point of all matches. Each point is simulated 3,000 times to estimate impact on match win probability.")
-            st.subheader("How we simulate a point")
+            st.subheader("Point Simulations")
             st.markdown("""
-            - For each recorded point, 1000 full match simulations are calculated, estimating probabilities before the point, and if either player wins the point, to quantify the "importance" of the point. 
+            For each recorded point, **3000 full match simulations** are calculated to determine each player's probability of winning the match. The 3000 simulations fall into 3 buckets, with 1000 simulations each to determine:
+            - The probability *before the point*.  
+            - The probability *if player 1 wins the point*.  
+            - The probability *if player 2 wins the point*.  
+
+            The difference associated with the match probabilities for either player winning the point is the point *importance*. 
             """)
-            st.subheader("Key metrics")
+            st.subheader("Key Metrics")
             st.markdown("""
-            **Expected Points Added (Clutchness)**: This measure of clutchness is the estimated ATP/WTA points gained or lost compared to the player's normal level. It is calculated as a product of each players win probability added/lost per point played, the importance of those points, and the ATP/WTA points at stake in the given match.
+            **Expected Points Added (Clutchness)**: This measure of clutchness is the estimated ATP/WTA points gained or lost compared to the player's normal level. It is calculated as a product of each players win probability added/lost per point played, the *importance* of those points, and the ATP/WTA points at stake in the given match.
 
             **Consistency**: This is a measure of how high a player's win probability is throughout all matches, and how stable those probabilities stay. The metric is calculated as the normalized product of the mean win probability added times the inverse of the standard deviation of the win probability change per point.
 
-            **High Pressure Points**: Defined as the top quartile (top 25%) of points by importance (probability swing if the player wins the point vs. if the player loses the point).
+            **High Pressure Points**: Defined as the top quartile (top 25%) of points by *importance*.
             """)
             st.subheader("Assumptions")
             st.markdown("- Simulation count can be increased for increased accuracy, but 1,000 per scenario (3,000 per point) was used to weigh scale and accuracy.\n- Small-sample players may be noisy, so minimum total point threshold is set to 400 points per year selected for ATP, and 200 points per year selected for WTA.")
