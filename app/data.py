@@ -10,6 +10,7 @@ if not (BASE_DIR / "data").exists():
     BASE_DIR = Path(__file__).resolve().parent  # fallback for cloud
 
 DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
+
 # OUTPUT_FILE = BASE_DIR / "outputs" / "table_preview.xlsx"
 
 # Connect to DuckDB
@@ -107,13 +108,10 @@ def load_tab0_sql(selected_years, selected_tour, selected_tourney,
 
     df = con.execute(query).fetchdf()
     con.close()
-    for col in ["player1", "player2",  "server_name", "returner_name"]:
-        if col in df.columns:
-            df[col] = df[col].apply(clean_player_name)
-
+    # for col in ["player1", "player2",  "server_name", "returner_name"]:
+    #     if col in df.columns:
+    #         df[col] = df[col].apply(clean_player_name)
     return df
-
-
 
 @st.cache_data
 def load_tab1_sql(selected_years, selected_tour, selected_tourney,
@@ -157,9 +155,9 @@ def load_tab1_sql(selected_years, selected_tour, selected_tourney,
 
     df = con.execute(query).fetchdf()
     con.close()
-    for col in ["player1", "player2", "server_name", "returner_name"]:
-        if col in df.columns:
-            df[col] = df[col].apply(clean_player_name)
+    # for col in ["player1", "player2", "server_name", "returner_name"]:
+    #     if col in df.columns:
+    #         df[col] = df[col].apply(clean_player_name)
 
     return df
 
@@ -213,8 +211,8 @@ def load_tab2_sql(selected_years, selected_tour, selected_tourney,
 
     df = con.execute(query).fetchdf()
     con.close()
-    for col in ["player1", "player2", "server_name", "returner_name"]:
-        if col in df.columns:
-            df[col] = df[col].apply(clean_player_name)
+    # for col in ["player1", "player2", "server_name", "returner_name"]:
+    #     if col in df.columns:
+    #         df[col] = df[col].apply(clean_player_name)
 
     return df

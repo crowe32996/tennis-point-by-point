@@ -1,5 +1,7 @@
 import duckdb
 from pathlib import Path
+import json
+import pandas as pd
 
 # Base directory is the repo root
 BASE_DIR = Path(__file__).resolve().parent.parent  # adjust if needed
@@ -8,10 +10,22 @@ if not (BASE_DIR / "data").exists():
 
 DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
 CSV_FILE = BASE_DIR / "outputs" / "all_points_with_importance.csv"
+PLAYER_MAPPING = BASE_DIR / "outputs" / "player_mapping.json"
+
+# Load JSON mapping
+with open(PLAYER_MAPPING) as f:
+    mapping = json.load(f)
+
+df_mapping = pd.DataFrame(mapping.items(), columns=["variant_name", "canonical_name"])
+
+
 TABLE_NAME = "importance_results"
 
 def transform_tables():
     con = duckdb.connect(DUCKDB_FILE)
+
+    # Register the mapping as a DuckDB table
+    con.register("name_map", df_mapping)
 
     # Match-level table
     con.execute("""
@@ -89,52 +103,58 @@ def transform_tables():
     """)
 
     # Player dimension table
-    con.execute("""
+    con.execute(f"""
     CREATE OR REPLACE TABLE player_detail AS
-        WITH all_players AS (
-            SELECT player1 AS player, 
-                CASE
-                    WHEN match_id LIKE '%-MS%' THEN 'ATP'
-                    WHEN match_id LIKE '%-WS%' THEN 'WTA'
-                    WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '1' THEN 'ATP'
-                    WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '2' THEN 'WTA'
-                    ELSE 'Unknown'
-                END AS tour,
-                player1_serve_point_win_pct AS serve_pct,
-                player1_return_point_win_pct AS return_pct,
-                year
-            FROM importance_results
-            UNION
-            SELECT player2 AS player, 
-                CASE
-                    WHEN match_id LIKE '%-MS%' THEN 'ATP'
-                    WHEN match_id LIKE '%-WS%' THEN 'WTA'
-                    WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '1' THEN 'ATP'
-                    WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '2' THEN 'WTA'
-                    ELSE 'Unknown'
-                END AS tour,
-                player2_serve_point_win_pct AS serve_pct,
-                player2_return_point_win_pct AS return_pct,
-                year
-            FROM importance_results
-        ),
-        distinct_players AS (
-            SELECT DISTINCT player
-            FROM all_players
-        ),
-        most_recent_year AS (
-            SELECT MAX(year) AS year FROM importance_results
-        )
+    WITH all_players AS (
+        SELECT COALESCE(nm.canonical_name, player1) AS player,
+            CASE
+                WHEN match_id LIKE '%-MS%' THEN 'ATP'
+                WHEN match_id LIKE '%-WS%' THEN 'WTA'
+                WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '1' THEN 'ATP'
+                WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '2' THEN 'WTA'
+                ELSE 'Unknown'
+            END AS tour,
+            player1_serve_point_win_pct AS serve_pct,
+            player1_return_point_win_pct AS return_pct,
+            year
+        FROM importance_results ir
+        LEFT JOIN name_map nm ON ir.player1 = nm.variant_name
+        UNION
+        SELECT COALESCE(nm.canonical_name, player2) AS player,
+            CASE
+                WHEN match_id LIKE '%-MS%' THEN 'ATP'
+                WHEN match_id LIKE '%-WS%' THEN 'WTA'
+                WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '1' THEN 'ATP'
+                WHEN LENGTH(match_id) >= 4 AND substr(split_part(match_id, '-', 3), 1, 1) = '2' THEN 'WTA'
+                ELSE 'Unknown'
+            END AS tour,
+            player2_serve_point_win_pct AS serve_pct,
+            player2_return_point_win_pct AS return_pct,
+            year
+        FROM importance_results ir
+        LEFT JOIN name_map nm ON ir.player2 = nm.variant_name
+    ),
+    player_agg AS (
         SELECT 
-            ROW_NUMBER() OVER () AS player_id,
-            p.player,
-            a.tour,
-            a.serve_pct,
-            a.return_pct,
-            CASE WHEN MAX(a.year) = (SELECT year FROM most_recent_year) THEN 'Active' ELSE 'Inactive' END AS player_status
-        FROM all_players a
-        JOIN distinct_players p USING (player)
-        GROUP BY p.player, a.tour, a.serve_pct, a.return_pct;
+            player,
+            MAX(tour) AS tour,  -- or use MIN/MAX depending on your rules
+            AVG(serve_pct) AS serve_pct,
+            AVG(return_pct) AS return_pct,
+            MAX(year) AS last_year
+        FROM all_players
+        GROUP BY player
+    ),
+    most_recent_year AS (
+        SELECT MAX(year) AS year FROM importance_results
+    )
+    SELECT 
+        ROW_NUMBER() OVER () AS player_id,
+        player,
+        tour,
+        serve_pct,
+        return_pct,
+        CASE WHEN last_year = (SELECT year FROM most_recent_year) THEN 'Active' ELSE 'Inactive' END AS player_status
+    FROM player_agg;
 
     """)
 

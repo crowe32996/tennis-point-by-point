@@ -75,8 +75,8 @@ def add_filtered_player_columns(df, selected_players):
         elif selected_players == "Inactive":
             return player_name if player_name in inactive_players else None
 
-    df['player1_filtered'] = df['player1'].apply(mask_player)
-    df['player2_filtered'] = df['player2'].apply(mask_player)
+    df['player1'] = df['player1'].apply(mask_player)
+    df['player2'] = df['player2'].apply(mask_player)
     return df
 
 
@@ -93,7 +93,6 @@ IOC_TO_ISO2 = {
     "KAZ": "KZ",
     "RSA": "ZA",
     "RUS": "RU",
-    "CHI": "CN",
     "TPE": "TW",
     "PUR": "PR",
     "ESA": "SV",
@@ -106,7 +105,10 @@ IOC_TO_ISO2 = {
     "CHI": "CL",  
     "AUT": "AT",  
     "NED": "NL",
-    "CRO": "HR"
+    "CRO": "HR",
+    "KOR":"KR",
+    "POR": "PT",
+    "CHN": "CN",  
 }
 
 def ioc_to_flag(ioc_code):
@@ -182,13 +184,11 @@ def render_flag_table(df, player_flag_map, player_col="Player", numeric_cols=Non
 
 
 def render_scoreboard(row, height = 130):
-    flag_p1 = "🇪🇸" if "Nadal" in row["Player 1"] else ""
-    flag_p2 = "🇷🇸" if "Djokovic" in row["Player 2"] else ""
     tournament_logo = "🎾"
 
     # Add serve emoji to serving player
-    p1_name = f"{flag_p1} {row['Player 1']}"
-    p2_name = f"{flag_p2} {row['Player 2']}"
+    p1_name = f"{row['Player 1']}"
+    p2_name = f"{row['Player 2']}"
     if str(row["Server"]) in ["1", "Player 1"]:
         p1_name += " 🎾"
         server_first = True

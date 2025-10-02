@@ -125,6 +125,7 @@ def render_tab0():
             selected_tourney,
             selected_players,
             min_points_filter)
+    df_tab0 = add_filtered_player_columns(df_tab0, selected_players)
 
     # print_memory("after pulling in tab0 df")
 
@@ -135,6 +136,7 @@ def render_tab0():
 
     # ---- Compute clutch dataframe ----
     match_clutch_df = compute_match_player_clutch(df_tab0)
+
 
     total_clutch_df = (
         match_clutch_df.groupby("player", as_index=False)["Total_Clutch_Score"]
@@ -155,6 +157,8 @@ def render_tab0():
             wp_before_point=1 - df_tab0['p1_win_prob_before']
         )
     ], ignore_index=True)
+    # ---- ADD THIS LINE ----
+    df_long = df_long[df_long['player'].notna()]  # remove masked-out players
 
     # ---- Aggregate per player ----
     player_consistency_df = df_long.groupby('player', observed=True).agg(
@@ -253,6 +257,7 @@ def render_tab1():
     st.subheader("📊 Point Win Rates (All Points vs. High Pressure)")
     df_tab1 = load_tab1_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
     # print_memory("after pulling in tab1 df")
+    df_tab1 = add_filtered_player_columns(df_tab1, selected_players)
 
     # ---- Add derived columns ----
     df_tab1["server_point_win"] = df_tab1["point_winner"] == df_tab1["point_server"]
