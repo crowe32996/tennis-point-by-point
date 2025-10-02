@@ -5,6 +5,11 @@ import duckdb
 import os
 import altair as alt
 from pathlib import Path
+import numpy as np
+import altair as alt
+from streamlit.components.v1 import html as components_html
+import psutil
+
 
 # Base directory is the repo root
 BASE_DIR = Path(__file__).resolve().parent.parent  # adjust if needed
@@ -14,116 +19,251 @@ if not (BASE_DIR / "data").exists():
 DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
 CSV_FILE = BASE_DIR / "outputs" / "all_points_with_importance.csv"
 TABLE_NAME = "importance_results"
+FEATURE_COLUMNS = {
+    "base": ["match_id", "player1", "player2", "year"],  # always needed
+    "win_prob": ["p1_win_prob_before", 'p1_win_prob_if_p1_wins', 'p1_win_prob_if_p2_wins', "p1_wp_delta", "p2_wp_delta", "points_stake","importance"],
+    "serve_return": ["PointWinner", "PointServer", "server_name", "returner_name"],
+    "match_winner": ["match_winner"],
+    "score": ["P1_Sets_Won", "P2_Sets_Won", "P1_Games_Won", "P2_Games_Won", "score"],
+}
+
+
 PLAYER_COUNTRY_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
 player_country_df = pd.read_csv(PLAYER_COUNTRY_FILE)
 player_flag_map = dict(zip(player_country_df["player"], player_country_df["country"]))
 
-
-TOURNAMENTS_MAP = {
-    "ausopen": "Australian Open",
-    "frenchopen": "French Open",
-    "wimbledon": "Wimbledon",
-    "usopen": "US Open"
-}
-TOURNAMENTS_SIDEBAR = ["All"] + list(TOURNAMENTS_MAP.values())
-
-GENDERS = ["All", "Men", "Women"]
-#TOURS = ["All", "ATP", "WTA"] removed All option
-TOURS = ["ATP", "WTA"]
-default_tour = "ATP"  # Change to "WTA" if you want WTA default
+def print_memory(note=""):
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / 1024**2  # Resident Set Size in MB
+    st.text(f"[MEMORY] {note} - {mem_mb:.2f} MB")
 
 
-@st.cache_data(show_spinner=False)
-def load_df_from_duckdb(selected_tour="ATP"):
-    con = duckdb.connect(DUCKDB_FILE)
-    
-    if selected_tour == "ATP":
-        where_clause = "WHERE (match_id LIKE 'MS%' OR substr(match_id, -4, 1) = '1')"
-    else:  # WTA
-        where_clause = "WHERE (match_id LIKE 'WS%' OR substr(match_id, -4, 1) = '2')"
-    query = f"""
-    SELECT
-        match_id,
-        PointWinner,
-        PointServer,
-        tournament,
-        year,
-        player1,
-        player2,
-        P1_Sets_Won,
-        P2_Sets_Won,
-        P1_Games_Won,
-        P2_Games_Won,
-        score,
-        server_point_win,
-        server_name,
-        returner_name,
-        return_point_win,
-        points_stake,
-        p1_win_prob_before,
-        p1_win_prob_if_p1_wins,
-        p1_win_prob_if_p2_wins,
-        importance,
-        p1_wp_delta,
-        p2_wp_delta,
-        match_winner
-    FROM {TABLE_NAME}
-    {where_clause}
+@st.cache_data
+def load_filtered_df_sql(selected_years, selected_tour="All", selected_tourney="All",
+                         selected_players="All", min_points_filter=None, columns=None):
     """
-    df = con.execute(query).df()
+    Load DuckDB data with all filters applied in SQL.
+    Total points filter is applied per player, not sets.
+    Optimized to calculate player totals and active players only once.
+    """
+    if columns is None:
+        columns = FEATURE_COLUMNS["base"] + FEATURE_COLUMNS["win_prob"] + FEATURE_COLUMNS["serve_return"]
+
+    essential_cols = ["match_id", "player1", "player2", "year", 
+                      "PointWinner", "p1_win_prob_if_p1_wins", 
+                      "p1_win_prob_if_p2_wins", "p1_win_prob_before"]
+
+    all_cols = list(dict.fromkeys(essential_cols + columns))
+    cols_str = ", ".join(all_cols)
+    years_str = ",".join(map(str, selected_years))
+
+    con = duckdb.connect(DUCKDB_FILE)
+
+    most_recent_year = con.execute(
+        f"SELECT MAX(year) FROM importance_results WHERE year IN ({years_str})"
+    ).fetchone()[0]
+
+    # Build optional min points filter clause
+    min_points_filter_sql = ""
+    if min_points_filter:
+        min_points_filter_sql = f"""
+        JOIN player_totals pt1 ON b.player1 = pt1.player
+        LEFT JOIN player_totals pt2 ON b.player2 = pt2.player
+        WHERE (pt1.player IS NOT NULL OR pt2.player IS NOT NULL)
+        """
+    
+    # Build active/inactive player filter
+    player_filter_sql = ""
+    if selected_players == "Active":
+        player_filter_sql = f"""
+        AND (b.player1 IN (SELECT player FROM active_players)
+             OR b.player2 IN (SELECT player FROM active_players))
+        """
+    elif selected_players == "Inactive":
+        player_filter_sql = f"""
+        AND (b.player1 NOT IN (SELECT player FROM active_players)
+             OR b.player2 NOT IN (SELECT player FROM active_players))
+        """
+
+    query = f"""
+    WITH base AS (
+        SELECT
+            {cols_str},
+            CASE
+                WHEN match_id LIKE '%-MS%' THEN 'ATP'
+                WHEN match_id LIKE '%-WS%' THEN 'WTA'
+                WHEN LENGTH(match_id) >= 4 AND substr(match_id, -4, 1) = '1' THEN 'ATP'
+                WHEN LENGTH(match_id) >= 4 AND substr(match_id, -4, 1) = '2' THEN 'WTA'
+                ELSE 'Unknown'
+            END AS Tour,
+            split_part(match_id, '-', 2) AS tourney_code,
+            CASE
+                WHEN PointWinner = 1 THEN p1_win_prob_if_p1_wins - p1_win_prob_before
+                ELSE p1_win_prob_if_p2_wins - p1_win_prob_before
+            END AS p1_wp_delta,
+            CASE
+                WHEN PointWinner = 1 THEN p1_win_prob_before - p1_win_prob_if_p1_wins
+                ELSE p1_win_prob_before - p1_win_prob_if_p2_wins
+            END AS p2_wp_delta
+        FROM importance_results
+        WHERE year IN ({years_str})
+    ),
+    player_totals AS (
+        SELECT player, SUM(total_points) AS total_points
+        FROM (
+            SELECT player1 AS player, COUNT(*) AS total_points
+            FROM importance_results
+            WHERE year IN ({years_str})
+            GROUP BY player1
+            UNION ALL
+            SELECT player2 AS player, COUNT(*) AS total_points
+            FROM importance_results
+            WHERE year IN ({years_str})
+            GROUP BY player2
+        )
+        GROUP BY player
+        HAVING SUM(total_points) >= {min_points_filter if min_points_filter else 0}
+    ),
+    active_players AS (
+        SELECT player1 AS player FROM importance_results WHERE year={most_recent_year}
+        UNION
+        SELECT player2 AS player FROM importance_results WHERE year={most_recent_year}
+    )
+    SELECT b.*
+    FROM base b
+    LEFT JOIN player_totals pt1 ON b.player1 = pt1.player
+    LEFT JOIN player_totals pt2 ON b.player2 = pt2.player
+    WHERE (b.Tour = '{selected_tour}' OR '{selected_tour}'='All')
+      AND (b.tourney_code = '{selected_tourney}' OR '{selected_tourney}'='All')
+      {"AND (pt1.player IS NOT NULL OR pt2.player IS NOT NULL)" if min_points_filter else ""}
+      {player_filter_sql}
+    """
+
+    # st.text("=== DuckDB Query ===")
+    # st.code(query, language="sql")
+    # st.text("===================")
+
+    df = con.execute(query).fetchdf()
     con.close()
+
+    # Clean player names and map tournaments
+    df["player1"] = df["player1"].map(clean_player_name)
+    df["player2"] = df["player2"].map(clean_player_name)
+    df["tournament"] = df["tourney_code"].map(TOURNAMENTS_MAP).fillna(df["tourney_code"])
+
     return df
 
-# Helper functions
-def capitalize_name(name):
+
+@st.cache_data
+def load_df_from_duckdb(selected_years, selected_tour, columns):
+    """
+    Load DuckDB data with the specified columns and years, and derive Tour from match_id.
+    Handles:
+      - standard match_id: 2023-usopen-1101 (4th-to-last digit: 1=Men, 2=Women)
+      - alternate: 2023-ausopen-MS101 (MS=Men, WS=Women)
+    """
+    # Always include base columns
+    columns_to_select = list(dict.fromkeys(FEATURE_COLUMNS["base"] + columns))
+    cols_str = ", ".join(columns_to_select)
+    
+    # Build the year filter
+    years_str = ",".join(map(str, selected_years))
+    
+    # Query DuckDB
+    query = f"""
+        SELECT {cols_str}
+        FROM importance_results
+        WHERE year IN ({years_str})
+    """
+    
+    con = duckdb.connect(DUCKDB_FILE)
+    df = con.execute(query).fetchdf()
+    con.close()
+    
+    # --- Derive Tour from match_id ---
+    def extract_gender(match_id: str) -> str:
+        match_id_str = str(match_id)
+        if "-" in match_id_str:
+            last_part = match_id_str.split("-")[-1]
+            if last_part.startswith("MS"):
+                return "Men"
+            elif last_part.startswith("WS"):
+                return "Women"
+        if len(match_id_str) >= 4:
+            gender_digit = match_id_str[-4]
+            if gender_digit == "1":
+                return "Men"
+            elif gender_digit == "2":
+                return "Women"
+        return None
+
+    if "match_id" in df.columns:
+        df["gender"] = df["match_id"].apply(extract_gender)
+        df["Tour"] = df["gender"].map({"Men": "ATP", "Women": "WTA"})
+    else:
+        df["Tour"] = "Unknown"
+    
+    # Filter by tour if not "All"
+    if selected_tour != "All":
+        df = df[df["Tour"] == selected_tour]
+    
+    return df
+
+
+def clean_player_name(name: str) -> str:
+    """Capitalize player names correctly, handling spaces, hyphens, and apostrophes."""
+    if not name or not name.strip():
+        return name
+
     parts = name.split()
-    capitalized_parts = []
-    for part in parts[1:]:
-        for sep in ["'", "-"]:
-            if sep in part:
-                subparts = part.split(sep)
-                subparts = [sp.capitalize() for sp in subparts]
-                part = sep.join(subparts)
-        capitalized_parts.append(part)
-    return parts[0] + ' ' + ' '.join(capitalized_parts)
+    first, rest_parts = parts[0], parts[1:]
+
+    cleaned_rest = []
+    for word in rest_parts:
+        for sep in ["-", "'"]:
+            if sep in word:
+                word = sep.join([w.capitalize() for w in word.split(sep)])
+        cleaned_rest.append(word.capitalize() if all(sep not in word for sep in ["-", "'"]) else word)
+
+    return f"{first} {' '.join(cleaned_rest)}".strip()
 
 def add_basic_columns(df):
-    # compute wp delta if missing
-    if "p1_wp_delta" not in df.columns:
-        df["p1_wp_delta"] = df.apply(
-            lambda row: (row["p1_win_prob_if_p1_wins"] - row["p1_win_prob_before"])
-            if row["PointWinner"] == 1
-            else (row["p1_win_prob_if_p2_wins"] - row["p1_win_prob_before"]),
-            axis=1
+    # --- win probability deltas (vectorized, faster than apply) ---
+    if "p1_wp_delta" not in df.columns and all(col in df.columns for col in ["PointWinner", "p1_win_prob_if_p1_wins", "p1_win_prob_if_p2_wins", "p1_win_prob_before"]):
+        df["p1_wp_delta"] = np.where(
+            df["PointWinner"] == 1,
+            df["p1_win_prob_if_p1_wins"] - df["p1_win_prob_before"],
+            df["p1_win_prob_if_p2_wins"] - df["p1_win_prob_before"]
         )
         df["p2_wp_delta"] = -df["p1_wp_delta"]
 
-    df["gender"] = df["match_id"].astype(str).str.extract(r"(\d{4})$")[0].str[0]
-    df["gender"] = df["gender"].map({"1": "Men", "2": "Women"})
-    df["Tour"] = df["gender"].map({"Men": "ATP", "Women": "WTA"})
-    df["player1"] =df['player1'].apply(
-        lambda x: x.split()[0] + ' ' + ' '.join([w.capitalize() for w in x.split()[1:]])
-    )
-    df["player2"]=df['player2'].apply(
-        lambda x: x.split()[0] + ' ' + ' '.join([w.capitalize() for w in x.split()[1:]])
-    )
-    df["player1"] = df['player1'].apply(capitalize_name)
-    df["player2"] = df['player2'].apply(capitalize_name)
+    # --- player name cleanup ---
+    if "player1" in df.columns and "player2" in df.columns:
+        df["player1"] = df["player1"].map(clean_player_name)
+        df["player2"] = df["player2"].map(clean_player_name)
+
+    # --- gender + Tour extraction ---
+    if "match_id" in df.columns:
+        # --- Tournament extraction from match_id ---
+        # Example match_id: 2023-ausopen-1120
+        df["tourney_code"] = df["match_id"].astype(str).str.split("-", n=2).str[1]
+        df["tournament"] = df["tourney_code"].map(TOURNAMENTS_MAP).fillna(df["tourney_code"])
+
     return df
 
 def filter_matches_by_sets(df: pd.DataFrame) -> pd.DataFrame:
-    """
+    """S
     Remove invalid matches from the dataset:
       - Men: exclude if a player has 3 sets won or more
       - Women: exclude if a player has 2 sets won or more
     """
     def is_valid(group):
-        gender = group["gender"].iloc[0]
+        tour = group["Tour"].iloc[0]
         p1_sets = group["P1_Sets_Won"].max()
         p2_sets = group["P2_Sets_Won"].max()
-        if gender == "Men" and (p1_sets >= 3 or p2_sets >= 3):
+        if tour in ("ATP",'All') and (p1_sets >= 3 or p2_sets >= 3):
             return False
-        if gender == "Women" and (p1_sets >= 2 or p2_sets >= 2):
+        if tour == "WTA" and (p1_sets >= 2 or p2_sets >= 2):
             return False
         return True
 
@@ -131,7 +271,7 @@ def filter_matches_by_sets(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def apply_filters(df, selected_tourney, selected_tour, selected_years):
-    df2 = df.copy()
+    df2 = df
     df2["tournament"] = df2["tournament"].map(TOURNAMENTS_MAP).fillna(df2["tournament"])
     if selected_tourney != "All":
         df2 = df2[df2["tournament"] == selected_tourney]
@@ -140,6 +280,27 @@ def apply_filters(df, selected_tourney, selected_tour, selected_years):
     if selected_years:
         df2 = df2[df2["year"].isin(selected_years)]
     return df2
+
+def add_filtered_player_columns(df, selected_players):
+    most_recent_year = df['year'].max()
+    active_players = pd.unique(
+        df[df['year'] == most_recent_year][['player1', 'player2']].values.ravel()
+    )
+    inactive_players = [p for p in pd.unique(df[['player1', 'player2']].values.ravel())
+                        if p not in active_players]
+
+    def mask_player(player_name):
+        if selected_players == "All":
+            return player_name
+        elif selected_players == "Active":
+            return player_name if player_name in active_players else None
+        elif selected_players == "Inactive":
+            return player_name if player_name in inactive_players else None
+
+    df['player1_filtered'] = df['player1'].apply(mask_player)
+    df['player2_filtered'] = df['player2'].apply(mask_player)
+    return df
+
 
 IOC_TO_ISO2 = {
     "SUI": "CH",
@@ -162,9 +323,14 @@ IOC_TO_ISO2 = {
     "VAN": "VU",
     "NMI": "MP",
     "POC": "XK",
-    "IRI": "IR"
-    # countries where first two letters are not iso2 code
+    "IRI": "IR",
+    "SWE": "SE",  
+    "CHI": "CL",  
+    "AUT": "AT",  
+    "NED": "NL",
+    "CRO": "HR"
 }
+
 def ioc_to_flag(ioc_code):
     iso2 = IOC_TO_ISO2.get(ioc_code, ioc_code[:2].upper())
     OFFSET = 127397
@@ -220,7 +386,7 @@ def render_flag_table(df, player_col="Player", numeric_cols=None, max_height=400
         for col in numeric_cols:
             val = row[col]
             if isinstance(val, float):
-                if col == "High Pressure %":
+                if col in ["High Pressure %","Win % (High Pressure)"]:
                     html += f"<td style='text-align:right'>{val*100:.1f}%</td>"
                 else:
                     html += f"<td style='text-align:right'>{val:.3f}</td>"
@@ -233,11 +399,11 @@ def render_flag_table(df, player_col="Player", numeric_cols=None, max_height=400
 
 @st.cache_data
 def compute_player_deltas(df):
-    p1_df = df[["player1", "p1_wp_delta", "is_high_pressure", "Tour"]].rename(
-        columns={"player1": "player", "p1_wp_delta": "wp_delta"}
+    p1_df = df[["player1_filtered", "p1_wp_delta", "is_high_pressure", "Tour"]].rename(
+        columns={"player1_filtered": "player", "p1_wp_delta": "wp_delta"}
     )
-    p2_df = df[["player2", "p2_wp_delta", "is_high_pressure", "Tour"]].rename(
-        columns={"player2": "player", "p2_wp_delta": "wp_delta"}
+    p2_df = df[["player2_filtered", "p2_wp_delta", "is_high_pressure", "Tour"]].rename(
+        columns={"player2_filtered": "player", "p2_wp_delta": "wp_delta"}
     )
 
     delta_df = pd.concat([p1_df, p2_df], ignore_index=True)
@@ -274,12 +440,49 @@ def compute_player_deltas(df):
     return player_delta_summary
 
 @st.cache_data
-def compute_clutch_rankings(df, perspective="All", min_hp_points=20):
+def compute_match_player_consistency(df):
+    """
+    Compute per-match, per-player consistency metric.
+    Returns a dataframe with:
+        - match_id
+        - player
+        - wp_delta_std (std dev of win probability deltas)
+        - consistency_score (inverse of std, higher = more consistent)
+        - tourney_code (for future filtering/display)
+        - year (optional)
+        - Tour (optional)
+    """
+    results = []
+
+    for match_id, group in df.groupby("match_id"):
+        players = [group["player1_filtered"].iloc[0], group["player2_filtered"].iloc[0]]
+
+        # grab match-level info
+        tourney_code = group["tourney_code"].iloc[0] if "tourney_code" in group.columns else None
+
+        for player in players:
+            group_copy = group.copy()
+            group_copy["player_wp_delta"] = group_copy.apply(
+                lambda row: row["p1_wp_delta"] if player == row["player1_filtered"] else row["p2_wp_delta"], axis=1
+            )
+
+            wp_delta_std = group_copy["player_wp_delta"].std(ddof=0)  # population std
+            consistency_score = 1 / wp_delta_std if wp_delta_std > 0 else None
+
+            results.append({
+                "match_id": match_id,
+                "player": player,
+                "wp_delta_std": wp_delta_std,
+                "consistency_score": consistency_score,
+                "tourney_code": tourney_code,
+            })
+
+    return pd.DataFrame(results)
+
+@st.cache_data
+def compute_clutch_rankings(df, min_hp_points = 200):
     # define server/return win columns
-    df_local = df.copy()
-    df_local["server_point_win"] = (df_local["PointWinner"] == df_local["PointServer"])
-    df_local["server_win"] = df_local["server_point_win"]
-    df_local["returner_win"] = (~df_local["server_point_win"]).astype(int)
+    df_local = df
 
     def compute_for(player_col, win_col):
         def summarize(group):
@@ -334,7 +537,7 @@ def compute_high_pressure_pct(df, min_hp_points):
 
 @st.cache_data
 def compute_top_points(df, top_n=10):
-    df_local = df.copy()
+    df_local = df
     
     # True swing: probability if point won minus probability if point lost
     df_local["wp_delta_display"] = df_local["p1_win_prob_if_p1_wins"] - df_local["p1_win_prob_if_p2_wins"]
@@ -343,7 +546,7 @@ def compute_top_points(df, top_n=10):
         lambda row: row["player1"] if row["PointWinner"] == 1 else row["player2"],
         axis=1
     )
-    top_points = df_local.nlargest(top_n, "abs_wp_delta").copy()
+    top_points = df_local.nlargest(top_n, "abs_wp_delta")
     
     top_points[["year", "tourney_code", "match_num"]] = top_points["match_id"].str.split("-", n=2, expand=True)
     top_points["tournament_name"] = top_points["tourney_code"].map(TOURNAMENTS_MAP).fillna(top_points["tourney_code"])
@@ -352,19 +555,19 @@ def compute_top_points(df, top_n=10):
 @st.cache_data
 def compute_unlikely_matches(df, low_threshold=0.10, high_threshold=0.90):
     # For unlikely winners & unlikely losers counts (one per match, per player)
-    df_valid = df[df["match_winner"].notna()].copy()
+    df_valid = df[df["match_winner"].notna()]
     df_valid = filter_matches_by_sets(df_valid)
 
     # Build p1/p2 version
-    p1_df = df_valid.copy()
+    p1_df = df_valid
     p1_df["win_prob"] = p1_df["p1_win_prob_before"]
-    p1_df["is_winner"] = p1_df["match_winner"] == p1_df["player1"]
-    p1_df["player"] = p1_df["player1"]
+    p1_df["is_winner"] = p1_df["match_winner"] == p1_df["player1_filtered"]
+    p1_df["player"] = p1_df["player1_filtered"]
 
-    p2_df = df_valid.copy()
+    p2_df = df_valid
     p2_df["win_prob"] = 1 - p2_df["p1_win_prob_before"]
-    p2_df["is_winner"] = p2_df["match_winner"] == p2_df["player2"]
-    p2_df["player"] = p2_df["player2"]
+    p2_df["is_winner"] = p2_df["match_winner"] == p2_df["player2_filtered"]
+    p2_df["player"] = p2_df["player2_filtered"]
 
     all_points = pd.concat([p1_df, p2_df], ignore_index=True)
 
@@ -384,69 +587,10 @@ def compute_unlikely_matches(df, low_threshold=0.10, high_threshold=0.90):
 
     return wins_summary, losses_summary
 
-@st.cache_data
-def compute_match_swings(df):
-    """
-    Returns one row per match with:
-    - Year
-    - Tournament (pretty)
-    - Winner
-    - Loser
-    - Winner swing (max ATP/WTA Points Gained/Lost swing)
-    - Winner Low Probability (lowest win probability at any point)
-    - ATP Points at Stake
-    - Gender
-    """
-    results = []
-    
-    for match_id, group in df.groupby("match_id"):
-        grp = group.copy()
-        
-        # parse year and tournament
-        parts = str(match_id).split("-", 2)
-        year = parts[0] if len(parts) > 0 else None
-        tourney_code = parts[1] if len(parts) > 1 else None
-        tournament_name = TOURNAMENTS_MAP.get(tourney_code, tourney_code)
-        
-        # compute cumulative swing
-        grp["p1_expected_points"] = grp["p1_win_prob_before"] * grp["points_stake"]
-        grp["p2_expected_points"] = (1 - grp["p1_win_prob_before"]) * grp["points_stake"]
-        
-        # swing = max - min
-        p1_swing = grp["p1_expected_points"].max() - grp["p1_expected_points"].min()
-        p2_swing = grp["p2_expected_points"].max() - grp["p2_expected_points"].min()
-        
-        # determine winner/loser
-        winner_name = grp["match_winner"].iloc[0] if "match_winner" in grp.columns else None
-        if winner_name == grp["player1"].iloc[0]:
-            winner_swing = p1_swing
-            winner_low_prob = grp["p1_win_prob_before"].min()
-            loser_name = grp["player2"].iloc[0]
-        else:
-            winner_swing = p2_swing
-            winner_low_prob = (1 - grp["p1_win_prob_before"]).min()
-            loser_name = grp["player1"].iloc[0]
-        
-        results.append({
-            "Year": int(year) if year and year.isdigit() else None,
-            "Tournament": tournament_name,
-            "Winner": winner_name,
-            "Loser": loser_name,
-            "ATP/WTA Points Gained/Lost": winner_swing,
-            "Winner Low Probability": winner_low_prob,
-            "ATP Points at Stake": grp["points_stake"].iloc[0],
-            "Tour": grp["Tour"].iloc[0] if "Tour" in grp.columns else "Unknown",
-            "match_id": match_id
-        })
-    
-    # sort by winner swing descending so biggest comebacks/blown leads appear first
-    df_results = pd.DataFrame(results)
-    df_results = df_results.sort_values("ATP/WTA Points Gained/Lost", ascending=False).reset_index(drop=True)
-    return df_results
 
 @st.cache_data
 def compute_score_summary(df):
-    score_df = df[df["score"].notna()].copy()
+    score_df = df[df["score"].notna()]
     valid_scores = ["0", "15", "30", "40", "AD"]
     
     # Extract score components
@@ -483,28 +627,29 @@ def compute_match_player_clutch(df):
         - high_pressure_points
     """
     df_long = pd.concat([
-        df.assign(player=df['player1'],
+        df.assign(player=df['player1_filtered'],
                   player_wp_delta=df['p1_wp_delta'],
                   points_stake=df['points_stake'],
-                  importance=df['importance'],
-                  is_high_pressure=df['is_high_pressure']),
-        df.assign(player=df['player2'],
+                  importance=df['importance']),
+                  #,is_high_pressure=df['is_high_pressure']),
+        df.assign(player=df['player2_filtered'],
                   player_wp_delta=df['p2_wp_delta'],
                   points_stake=df['points_stake'],
-                  importance=df['importance'],
-                  is_high_pressure=df['is_high_pressure'])
+                  importance=df['importance'])
+                  #,is_high_pressure=df['is_high_pressure'])
     ], ignore_index=True)
 
     # Compute clutch score per point (vectorized)
     df_long['clutch_score'] = df_long['player_wp_delta'] * df_long['importance'] * df_long['points_stake']
 
     # Keep only necessary columns for aggregation
-    df_long = df_long[['match_id', 'player', 'clutch_score', 'is_high_pressure', 'tourney_code']]
+    df_long = df_long[['match_id', 'player', 'clutch_score', #'is_high_pressure', 
+                       'tourney_code']]
 
     # Aggregate per match, per player
     results = df_long.groupby(['match_id', 'player', 'tourney_code'], observed=True).agg(
-        Total_Clutch_Score=('clutch_score', 'sum'),
-        High_Pressure_Points=('is_high_pressure', 'sum')
+        Total_Clutch_Score=('clutch_score', 'sum')
+        #,High_Pressure_Points=('is_high_pressure', 'sum')
     ).reset_index()
 
     return results
@@ -520,477 +665,582 @@ def compute_player_clutch_aggregate(match_clutch_df):
         Avg_Clutch_Score=("Total_Clutch_Score", "mean")  # average per match
     ).reset_index()
 
+
+def render_scoreboard(row, height = 130):
+    flag_p1 = "🇪🇸" if "Nadal" in row["Player 1"] else ""
+    flag_p2 = "🇷🇸" if "Djokovic" in row["Player 2"] else ""
+    tournament_logo = "🎾"
+
+    # Add serve emoji to serving player
+    p1_name = f"{flag_p1} {row['Player 1']}"
+    p2_name = f"{flag_p2} {row['Player 2']}"
+    if str(row["Server"]) in ["1", "Player 1"]:
+        p1_name += " 🎾"
+        server_first = True
+    else:
+        p2_name += " 🎾"
+        server_first = False
+
+    # Bold winner
+    if row["Match Winner"] == row["Player 1"]:
+        p1_name = f"<strong>{p1_name}</strong>"
+    else:
+        p2_name = f"<strong>{p2_name}</strong>"
+
+    # Split game score at hyphen
+    if "-" in str(row["Game Score"]):
+        score_parts = row["Game Score"].split("-", 1)
+        score_p1 = score_parts[0] if server_first else score_parts[1]
+        score_p2 = score_parts[1] if server_first else score_parts[0]
+    else:
+        score_p1 = row["Game Score"]
+        score_p2 = row["Game Score"]
+
+    html = f"""
+    <div style="
+        border: 2px solid #ddd; 
+        border-radius: 12px; 
+        padding: 4px; 
+        margin-bottom: 2px; 
+        box-shadow: 1px 1px 4px rgba(0,0,0,0.08);
+        font-family: Arial, sans-serif;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+            <span style="font-weight: bold; font-size: 1em;">{row['Tournament']} {row['Year']}</span>
+            <span style="font-size: 1.2em;">{tournament_logo}</span>
+        </div>
+
+        <table style="width:100%; text-align: center; border-collapse: collapse; font-size: 0.9em;">
+            <tr>
+                <th style="text-align:left;">Player</th>
+                <th>Sets</th>
+                <th>Games</th>
+                <th>Game Score</th>
+            </tr>
+            <tr>
+                <td style="text-align:left;">{p1_name}</td>
+                <td>{row['P1 Sets']}</td>
+                <td>{row['P1 Games']}</td>
+                <td>{score_p1}</td>
+            </tr>
+            <tr>
+                <td style="text-align:left;">{p2_name}</td>
+                <td>{row['P2 Sets']}</td>
+                <td>{row['P2 Games']}</td>
+                <td>{score_p2}</td>
+            </tr>
+        </table>
+
+        <div style="margin-top:2px; font-size:0.85em; color:#555; text-align:center;">
+            Lowest Win Probability: {row['Win Probability']:.1f}%
+        </div>
+    </div>
+    """
+
+    # Render the HTML inside an iframe (set height so iframe matches content)
+    components_html(html, height=height)
+
 def make_score_heatmap(df):
     return alt.Chart(pd.DataFrame({"x": [], "y": []})).mark_rect()
-
+# --------------------------
 # Streamlit UI
+# --------------------------
+
+TOURNAMENTS_MAP = {
+    "ausopen": "Australian Open",
+    "frenchopen": "French Open",
+    "wimbledon": "Wimbledon",
+    "usopen": "US Open"
+}
+TOURNAMENTS_SIDEBAR = ["All"] + list(TOURNAMENTS_MAP.values())
+
+TOURS = ["ATP", "WTA"]
+default_tour = "ATP"
+PLAYERS = ["All", "Active", "Inactive"]
+default_players = "Active"
+
 st.set_page_config(layout="wide", page_title="Tennis Clutch Dashboard")
-
-st.title("🎾 ATP/WTA Tennis Clutch Performers")
-st.markdown("Analyze which players have **thrived** or **struggled** under pressure in Grand Slam matches since 2020.")
-
-# Sidebar filters (one place)
 st.sidebar.header("Filters")
-selected_tour = st.sidebar.selectbox("Tour", TOURS, index=0, key="tour_select")
-
-# load raw DF
-raw_df = load_df_from_duckdb(selected_tour)
-raw_df = add_basic_columns(raw_df)
-
-# Extract year for filtering (ensure integer type)
-raw_df["year"] = raw_df["match_id"].astype(str).str.split("-").str[0].astype(int)
-
-# Ensure 'tourney_code' exists
-if "tourney_code" not in raw_df.columns:
-    raw_df["tourney_code"] = raw_df["match_id"].astype(str).str.split("-", n=2).str[1]
-
-available_years = sorted(raw_df["year"].unique())
 
 
+# --- At the very top of your script ---
+if "last_filters" not in st.session_state:
+    st.session_state.last_filters = {}
+if "force_rerun" not in st.session_state:
+    st.session_state.force_rerun = False
+
+print_memory("before any major ops")
+
+
+# ---- Sidebar Filters ----
+all_years = list(range(2020, 2025))
 selected_year_range = st.sidebar.select_slider(
     "Select Year Range",
-    options=available_years,
-    value=(min(available_years), max(available_years))  # dynamically fits your data
+    options=all_years,
+    value=(2020, 2024)
 )
-# Convert the slider range tuple into a list of years
 selected_years = list(range(selected_year_range[0], selected_year_range[1] + 1))
-#selected_gender = st.sidebar.selectbox("Gender", GENDERS, index=0, key="gender_select")
-selected_tourney = st.sidebar.selectbox("Tournament", TOURNAMENTS_SIDEBAR, index=0, key="tourney_select")
-pressure_threshold = st.sidebar.slider("Importance Threshold (Top N% of Point Probability +/-)", min_value=1, max_value=50, value=25, key="pressure_thr")
 
-# apply filters to df used by many pages
-df = apply_filters(raw_df, selected_tourney, selected_tour, selected_years)
+selected_tour = st.sidebar.selectbox("Tour", TOURS, index=0, key="tour_select")
 
-if "is_high_pressure" not in df.columns:
-    threshold_value = df["importance"].quantile(1 - pressure_threshold / 100)
-    df["is_high_pressure"] = df["importance"] >= threshold_value
+# Dynamically update title
+st.title(f"🎾 {selected_tour} Tennis Clutch Performers")
+st.markdown(
+    f"Analyze which players have **thrived** or **struggled** under pressure in {selected_tour} Grand Slam matches since 2020."
+)
+selected_players = st.sidebar.selectbox("Player Status", PLAYERS, index=PLAYERS.index(default_players))
+selected_tourney = st.sidebar.selectbox("Tournament", TOURNAMENTS_SIDEBAR, index=0)
 
-# Sidebar: minimum high pressure points
-max_hp_points = int(df["is_high_pressure"].sum())
+# Compute default min points
+default_min_points = (400 if selected_tour == "ATP" else 200) * len(selected_years)
+min_points_filter = st.sidebar.slider(
+    "Minimum Points per Player",
+    min_value=0,
+    max_value=5000,
+    value=default_min_points,
+    step=50
+)
 
-# default to 200 or max available if less than 200
-default_hp_points = min(200, max_hp_points)
+filters = {
+    "years": selected_years,
+    "tour": selected_tour,
+    "tourney": selected_tourney,
+    "players": selected_players,
+    "min_points": min_points_filter
+}
+filters_changed = filters != st.session_state.last_filters
+if filters_changed:
+    st.session_state.last_filters = filters
+    st.session_state.force_rerun = True
 
-# show slider only if there are any high-pressure points
-if max_hp_points > 0:
-    min_hp_points_filter = st.sidebar.slider(
-        "Minimum High Pressure Points", 
-        min_value=0, 
-        max_value=2000,
-        value=default_hp_points,
-        key="min_hp_points_slider"
-    )
-else:
-    min_hp_points_filter = 0
-    st.sidebar.info("No high-pressure points in current selection")
+# --- Trigger rerun if needed ---
+if st.session_state.force_rerun:
+    st.session_state.force_rerun = False
+    st.rerun()
 
-# compute HP % per player
-hp_pct_df = compute_high_pressure_pct(df, min_hp_points_filter)
+# --------------------------
+# Tabs
+# --------------------------
+tab0, tab1, tab2 = st.tabs(["Player Performance", "High Pressure Performance", "Standout Events"])
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "tab0"
 
-df["server_point_win"] = (df["PointWinner"] == df["PointServer"])
-df["server_win"] = df["server_point_win"]
-df["returner_win"] = ~df["server_point_win"]
+selected_tab = st.session_state.active_tab
 
-
-tab0, tab1, tab2, tab3 = st.tabs(["Clutch Summary", "Clutch Player Stats", "Extreme Events", "Game Score Stats"])
-
-# ---- TAB 1: Clutch Player Rankings ----
+# ==========================
+# TAB 0: Player Performance
+# ==========================
 with tab0:
-    st.subheader("Players with Most & Least Clutch Performance")
+    st.subheader("📊 Player Consistency and Clutchness")
+    st.session_state.active_tab = "tab0"
+    if "df_tab0" not in st.session_state or filters_changed:
+        st.session_state.df_tab0 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
+        st.session_state.df_tab0 = add_filtered_player_columns(st.session_state.df_tab0, selected_players)
+    df_tab0 = st.session_state.df_tab0
 
-    # Use the total clutch ranking from tab1
-    match_clutch_df = compute_match_player_clutch(df)
+
+    # # ---- Lazy-load only columns needed for Tab 0 ----
+    # df_tab0 = load_df_from_duckdb(
+    #     selected_years=selected_years,
+    #     selected_tour=selected_tour,
+    #     columns=FEATURE_COLUMNS["base"] + FEATURE_COLUMNS["win_prob"] + FEATURE_COLUMNS["serve_return"]
+    # )
+    # df_tab0 = add_basic_columns(df_tab0)
+    # df_tab0 = apply_filters(df_tab0, selected_tourney, selected_tour, selected_years)
+    # df_tab0 = add_filtered_player_columns(df_tab0, selected_players)
+    # df_tab0 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
+    # df_tab0 = add_filtered_player_columns(df_tab0, selected_players)
+    print_memory("after pulling in tab0 df")
+
+    # ---- Add derived columns ----
+    df_tab0["server_point_win"] = df_tab0["PointWinner"] == df_tab0["PointServer"]
+    df_tab0["server_win"] = df_tab0["server_point_win"]
+    df_tab0["returner_win"] = ~df_tab0["server_point_win"]
+
+    # ---- Compute clutch dataframe ----
+    match_clutch_df = compute_match_player_clutch(df_tab0)
+
+    total_clutch_df = (
+        match_clutch_df.groupby("player", as_index=False)["Total_Clutch_Score"]
+        .sum()
+        .rename(columns={"player": "Player", "Total_Clutch_Score": "Expected Points Added (EPA)"})
+    ) if not match_clutch_df.empty else pd.DataFrame(columns=["Player", "Expected Points Added (EPA)"])
+
+    # ---- Flatten to long format for consistency calculations ----
+    df_long = pd.concat([
+        df_tab0.assign(
+            player=df_tab0['player1_filtered'],
+            player_wp_delta=df_tab0['p1_wp_delta'],
+            wp_before_point=df_tab0['p1_win_prob_before']
+        ),
+        df_tab0.assign(
+            player=df_tab0['player2_filtered'],
+            player_wp_delta=df_tab0['p2_wp_delta'],
+            wp_before_point=1 - df_tab0['p1_win_prob_before']
+        )
+    ], ignore_index=True)
+
+    # ---- Aggregate per player ----
+    player_consistency_df = df_long.groupby('player', observed=True).agg(
+        Total_Points=('player_wp_delta', 'count'),
+        Avg_WP=('wp_before_point', 'mean'),
+        WP_Delta_Std=('player_wp_delta', 'std')
+    ).reset_index()
+
+    # ---- Consistency metrics ----
+    player_consistency_df['Consistency'] = player_consistency_df.apply(
+        lambda r: r['Avg_WP'] / r['WP_Delta_Std'] if r['WP_Delta_Std'] > 0 else None,
+        axis=1
+    )
+    player_consistency_df['Weighted_Consistency'] = player_consistency_df['Consistency'] * np.sqrt(player_consistency_df['Total_Points'])
+    player_consistency_df['Consistency_Percentile'] = (
+        (player_consistency_df['Weighted_Consistency'] - player_consistency_df['Weighted_Consistency'].min())
+        / (player_consistency_df['Weighted_Consistency'].max() - player_consistency_df['Weighted_Consistency'].min())
+    )
+
+    player_consistency_df = player_consistency_df.rename(columns={'player':'Player', 'Consistency_Percentile': 'Consistency Index'})
+    player_consistency_df = player_consistency_df[player_consistency_df['Total_Points'] >= min_points_filter]
+
+    # ---- Merge with Clutch ----
+    player_stats_df = player_consistency_df.merge(
+        total_clutch_df[['Player', 'Expected Points Added (EPA)']],
+        on='Player',
+        how='inner'
+    )
+    player_stats_df['Clutch_Percentile'] = player_stats_df['Expected Points Added (EPA)'].rank(pct=True)
+
+    # ---- Bubble chart ----
+    tennis_colors = alt.Scale(domain=[player_stats_df['Total_Points'].min(),
+                                      player_stats_df['Total_Points'].max()],
+                              range=["#ffffcc", "#ccff00"])
+
+    bubble = alt.Chart(player_stats_df).mark_circle().encode(
+        x=alt.X('Consistency Index', scale=alt.Scale(domain=[0,1])),
+        y=alt.Y('Clutch_Percentile', scale=alt.Scale(domain=[0,1])),
+        size=alt.Size('Expected Points Added (EPA)', scale=alt.Scale(range=[50, 1000])),
+        color=alt.Color('Total_Points', scale=tennis_colors),
+        tooltip=[
+            alt.Tooltip('Player:N'),
+            alt.Tooltip('Total_Points:Q', format=','),
+            alt.Tooltip('Consistency Index:Q', format='.1%'),
+            alt.Tooltip('Clutch_Percentile:Q', format='.1%'),
+            alt.Tooltip('Expected Points Added (EPA):Q', format='.0f')
+        ]
+    )
+
+    vline = alt.Chart(pd.DataFrame({'Consistency Index':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(x='Consistency Index:Q')
+    hline = alt.Chart(pd.DataFrame({'Clutch_Percentile':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(y='Clutch_Percentile:Q')
+    st.write("Chart data preview:", player_stats_df.head(), player_stats_df.shape)
+
+    bubble_chart = alt.layer(bubble, vline, hline).properties(width=800, height=500, title='Player Consistency vs Clutchness').resolve_scale(x='shared', y='shared')
+    st.altair_chart(bubble_chart, use_container_width=True, key=f"bubble00_{selected_tour}_{'-'.join(map(str, selected_years))}_{selected_tourney}")
+
+    # ---- Top/Bottom Tables ----
+    st.subheader("Most & Least Consistent Performance")
+    col1, col2 = st.columns(2)
+    with col1:
+        render_flag_table(player_consistency_df.nlargest(10, 'Consistency Index'), player_col="Player", numeric_cols=["Consistency Index"])
+    with col2:
+        render_flag_table(player_consistency_df.nsmallest(10, 'Consistency Index'), player_col="Player", numeric_cols=["Consistency Index"])
+
+    st.subheader("Most & Least Clutch Performance")
     if not match_clutch_df.empty:
-        total_clutch = match_clutch_df.groupby("player")["Total_Clutch_Score"].sum().reset_index()
-        total_clutch = total_clutch.rename(columns={
-            "player": "Player",
-            "Total_Clutch_Score": "Total Clutch Score"
-        })
-        clutch_desc = total_clutch.sort_values("Total Clutch Score", ascending=False).head(10)
-        clutch_asc = total_clutch.sort_values("Total Clutch Score", ascending=True).head(10)
-
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("**Top 10 Most Clutch Players**")
-            render_flag_table(
-                clutch_desc.reset_index(drop=True),
-                player_col="Player",
-                numeric_cols=["Total Clutch Score"]
-            )
+            render_flag_table(total_clutch_df.nlargest(10, 'Expected Points Added (EPA)'), player_col="Player", numeric_cols=["Expected Points Added (EPA)"])
         with col2:
-            st.markdown("**Top 10 Least Clutch Players**")
-            render_flag_table(
-                clutch_asc.reset_index(drop=True),
-                player_col="Player",
-                numeric_cols=["Total Clutch Score"]
-            )
+            render_flag_table(total_clutch_df.nsmallest(10, 'Expected Points Added (EPA)'), player_col="Player", numeric_cols=["Expected Points Added (EPA)"])
     else:
         st.info("No clutch points/matches found.")
-
-    player_hp = compute_high_pressure_pct(df, min_hp_points_filter)
-    player_hp = player_hp.rename(columns={
-        "player": "Player",
-        "High_Pressure_Pct": "High Pressure %"
-    })
-
-    st.subheader("Percentage of Points Under Pressure")
-    col1, col2 = st.columns(2)
-
-    # Sort by High Pressure %
-    hp_sorted_asc = player_hp.sort_values("High Pressure %", ascending=True)
-    hp_sorted_desc = player_hp.sort_values("High Pressure %", ascending=False)
-
-    with col1:
-        st.markdown("**Top 10 Players Least Under Pressure**")
-        render_flag_table(
-            hp_sorted_asc[["Player", "High Pressure %"]].head(10).reset_index(drop=True),
-            player_col="Player",
-            numeric_cols=["High Pressure %"]
-        )
-
-    with col2:
-        st.markdown("**Top 10 Players Most Under Pressure**")
-        render_flag_table(
-            hp_sorted_desc[["Player", "High Pressure %"]].head(10).reset_index(drop=True),
-            player_col="Player",
-            numeric_cols=["High Pressure %"]
-        )
-
-    st.subheader("Players with Most Unlikely Outcomes")
-    wins_summary, losses_summary = compute_unlikely_matches(df, low_threshold=0.25, high_threshold=0.75)
-
-    wins_summary = wins_summary.rename(columns={
-        "player": "Player",
-        "Num_UnlikelyWins": "# of Unlikely Wins"
-    })
-    losses_summary = losses_summary.rename(columns={
-        "player": "Player",
-        "Num_UnlikelyLosses": "# of Unlikely Losses"
-    })
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Top 10 Most Unlikely Wins (<25%)**")
-        render_flag_table(
-            wins_summary.reset_index(drop=True).head(10),
-            player_col="Player",
-            numeric_cols=["# of Unlikely Wins"]
-        )
-
-    with col2:
-        st.markdown("**Top 10 Most Unlikely Losses (>75%)**")
-        render_flag_table(
-            losses_summary.reset_index(drop=True).head(10),
-            player_col="Player",
-            numeric_cols=["# of Unlikely Losses"]
-        )
-
+    print_memory("after rendering tab0")
+    # After rendering bubble chart and tables
+    del st.session_state.df_tab0, df_tab0, df_long, match_clutch_df, total_clutch_df, player_stats_df
+    import gc; gc.collect()
 
 with tab1:
-    st.subheader("📈 Player Clutch Scores (Best & Worst Matches)")
-    match_clutch_df = compute_match_player_clutch(df)
+    st.subheader("📊 Point Win Rates (All Points vs. High Pressure)")
+    st.session_state.active_tab = "tab1"
 
-    if not match_clutch_df.empty:
-        # Keep only match_id, player, and Total_Clutch_Score
-        match_clutch_df = match_clutch_df[["match_id", "player", "Total_Clutch_Score", "tourney_code"]]
+    # ---- Lazy-load only columns needed for Tab 1 ----
+    if "df_tab1" not in st.session_state or filters_changed:
+        st.session_state.df_tab1 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
+        st.session_state.df_tab1 = add_filtered_player_columns(st.session_state.df_tab1, selected_players)
+    df_tab1 = st.session_state.df_tab1
 
-        # Merge basic match info
-        match_clutch_df = match_clutch_df.merge(
-            df[["match_id", "Tour","year", "player1", "player2"]].drop_duplicates(),
-            on="match_id",
-            how="left"
+    # df_tab1 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
+    # df_tab1 = add_filtered_player_columns(df_tab1, selected_players)
+    print_memory("after pulling in tab1 df")
+
+    # ---- Add derived columns ----
+    df_tab1["server_point_win"] = df_tab1["PointWinner"] == df_tab1["PointServer"]
+    df_tab1["server_win"] = df_tab1["server_point_win"]
+    df_tab1["returner_win"] = ~df_tab1["server_point_win"]
+
+    # ---- Compute total points per player ----
+    player_points = df_tab1.groupby('player1')['match_id'].count().reset_index().rename(
+        columns={'match_id': 'Total_Points', 'player1': 'Player'}
+    )
+    df_tab1 = df_tab1.merge(player_points, left_on='player1', right_on='Player', how='left')
+    df_tab1 = df_tab1[df_tab1['Total_Points'] >= min_points_filter]
+
+    # ---- High Pressure Filters ----
+    with st.expander("Configure High Pressure Filters"):
+        pressure_threshold = st.slider(
+            "Importance Threshold (Top N% of Point Probability +/-)",
+            min_value=1, max_value=50, value=25, key="pressure_thr_tab1"
         )
+        threshold_value = df_tab1["importance"].quantile(1 - pressure_threshold / 100)
+        df_tab1["is_high_pressure"] = df_tab1["importance"] >= threshold_value
 
-        # Map tournament codes to friendly names
-        match_clutch_df["Tournament"] = match_clutch_df["tourney_code"].map(TOURNAMENTS_MAP).fillna(match_clutch_df["tourney_code"])
+        max_hp_points = int(df_tab1["is_high_pressure"].sum())
+        default_hp_points = min(200 if selected_tour=="ATP" else 100, max_hp_points)
 
-        # Combine year and tournament (year first)
-        match_clutch_df["Tournament_Year"] = match_clutch_df["year"].astype(str) + " " + match_clutch_df["Tournament"]
+        if max_hp_points > 0:
+            min_hp_points_filter = st.slider(
+                "Minimum High Pressure Points",
+                min_value=0,
+                max_value=2000,
+                value=default_hp_points,
+                key="min_hp_points_slider_tab1"
+            )
+        else:
+            min_hp_points_filter = 0
+            st.info("No high-pressure points in current selection")
 
-        # Determine the opponent
-        match_clutch_df["Opponent"] = match_clutch_df.apply(
-            lambda r: r["player2"] if r["player"] == r["player1"] else r["player1"], axis=1
-        )
+    # ---- Compute High Pressure %
+    player_hp = compute_high_pressure_pct(df_tab1, min_hp_points_filter)
+    player_hp = player_hp.rename(columns={"player":"Player", "High_Pressure_Pct":"High Pressure %"})
 
-        # Find each player's most and least clutch matches
-        idx_max = match_clutch_df.groupby("player")["Total_Clutch_Score"].idxmax()
-        idx_min = match_clutch_df.groupby("player")["Total_Clutch_Score"].idxmin()
-
-        best_matches = match_clutch_df.loc[idx_max].rename(columns={
-            "Total_Clutch_Score": "Best Clutch Score",
-            "Tournament_Year": "Tournament (Most Clutch)",
-            "Opponent": "Opponent (Most Clutch)"
-        })[["player","Tour", "Best Clutch Score", "Tournament (Most Clutch)", "Opponent (Most Clutch)"]]
-
-        worst_matches = match_clutch_df.loc[idx_min].rename(columns={
-            "Total_Clutch_Score": "Worst Clutch Score",
-            "Tournament_Year": "Tournament (Least Clutch)",
-            "Opponent": "Opponent (Least Clutch)"
-        })[["player", "Worst Clutch Score", "Tournament (Least Clutch)", "Opponent (Least Clutch)"]]
-
-        # Merge best and worst
-        player_matches = best_matches.merge(
-            worst_matches,
-            on="player"
-        )
-
-        # Add total clutch score across all matches per player
-        total_clutch = match_clutch_df.groupby("player")["Total_Clutch_Score"].sum().reset_index()
-        
-        total_clutch = total_clutch.rename(columns={"Total_Clutch_Score": "Total Clutch Score"})
-
-        player_matches = player_matches.merge(total_clutch, on="player", how="left")
-
-        # Reorder columns
-        player_matches = player_matches[[
-            "Tour",
-            "player",
-            "Total Clutch Score",
-            "Best Clutch Score",
-            "Tournament (Most Clutch)",
-            "Opponent (Most Clutch)",
-            "Worst Clutch Score",
-            "Tournament (Least Clutch)",
-            "Opponent (Least Clutch)"
-        ]]
-
-        # Rename player column
-        player_matches = player_matches.rename(columns={"player": "Player"})
-        player_matches = player_matches.sort_values(by="Total Clutch Score", ascending=False)
-        st.dataframe(
-            player_matches.reset_index(drop=True).style.format({
-                "Total Clutch Score": "{:.3f}",
-                "Best Clutch Score": "{:.3f}",
-                "Worst Clutch Score": "{:.3f}"
-            }),
-            use_container_width=True
-        )
-    else:
-        st.info("No clutch points/matches found.")
-
-    st.subheader("📊 Points Win Rate (All Points vs. High Pressure)")
-    
-    # Compute rankings
-    rankings = compute_clutch_rankings(df, perspective="All").reset_index().rename(columns={
+    # ---- Compute Rankings ----
+    rankings = compute_clutch_rankings(df_tab1).reset_index().rename(columns={
         "index": "Player",
         "Win % (All)": "Win % (All Points)",
         "Win % (HP)": "Win % (High Pressure)",
         "HP Points": "High Pressure Points"
     })
 
-    # Merge high-pressure percentage from hp_pct_df
-    rankings = rankings.merge(
-        hp_pct_df[["player", "High_Pressure_Pct"]],
-        left_on="Player",
-        right_on="player",
-        how="left"
+    rankings = rankings.merge(player_hp[["Player", "High Pressure %"]], on="Player", how="left")
+    rankings = rankings.merge(player_points, on="Player", how="left")
+
+    rankings_display_filtered = rankings[rankings["Total_Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
+    rankings_display_filtered = rankings_display_filtered.rename(columns={"High Pressure %": "% High Pressure Points"})
+
+    # ---- Bubble chart ----
+    clutch_colors = alt.Scale(domain=[rankings_display_filtered['Clutch Delta'].min(), rankings_display_filtered['Clutch Delta'].max()],
+                              range=['#ff4d4d', '#4dff4d'])
+    x_min, x_max = rankings_display_filtered['Win % (All Points)'].min(), rankings_display_filtered['Win % (All Points)'].max()
+    y_min, y_max = rankings_display_filtered['Win % (High Pressure)'].min(), rankings_display_filtered['Win % (High Pressure)'].max()
+
+    bubble_chart = (
+        alt.Chart(rankings_display_filtered)
+        .mark_circle()
+        .encode(
+            x=alt.X('Win % (All Points):Q', scale=alt.Scale(domain=[x_min, x_max]), title='Total Win %'),
+            y=alt.Y('Win % (High Pressure):Q', scale=alt.Scale(domain=[y_min, y_max]), title='Win % Under Pressure'),
+            size=alt.Size('% High Pressure Points:Q', scale=alt.Scale(range=[10,500]), title='% Points Under Pressure'),
+            color=alt.Color('Clutch Delta:Q', scale=clutch_colors, title='Clutch Delta'),
+            tooltip=[
+                alt.Tooltip('Player:N'),
+                alt.Tooltip('Win % (All Points):Q', format=".1%"),
+                alt.Tooltip('Win % (High Pressure):Q', format=".1%"),
+                alt.Tooltip('% High Pressure Points:Q', format=".1%"),
+                alt.Tooltip('Clutch Delta:Q', format=".1%")
+            ]
+        )
+        .properties(width=800, height=500)
     )
-    rankings.drop(columns="player", inplace=True)
 
-    # Sort by Clutch Delta descending
-    rankings_display_filtered = rankings[rankings["High Pressure Points"] >= min_hp_points_filter].copy()
-    rankings_display_filtered = rankings_display_filtered.sort_values("Clutch Delta", ascending=False).rename(columns={
-        "High_Pressure_Pct": "% High Pressure Points"
-    })
+    vline = alt.Chart(pd.DataFrame({'x':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(x='x:Q')
+    hline = alt.Chart(pd.DataFrame({'y':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(y='y:Q')
+    st.altair_chart(bubble_chart + vline + hline, use_container_width=True, key=f"bubble01_{selected_tour}_{'-'.join(map(str, selected_years))}_{selected_tourney}")
 
-    # Columns to display
-    numeric_cols = [
-        "Win % (All Points)", "Win % (High Pressure)", "Clutch Delta",
-        "Total Points", "High Pressure Points", "% High Pressure Points"
-    ]
 
-    # Display sortable dataframe
-    st.dataframe(
-        rankings_display_filtered[["Tour","Player"] + numeric_cols].reset_index(drop=True).style.format({
-            "Win % (All Points)": "{:.1%}",
-            "Win % (High Pressure)": "{:.1%}",
-            "Clutch Delta": "{:.1%}",
-            "% High Pressure Points": "{:.1%}",
-            "Total Points": "{:.0f}",
-            "High Pressure Points": "{:.0f}"
-        }),
-        use_container_width=True
-    )
+    # ---- Top/Bottom Tables ----
+    st.subheader("Under Pressure Frequency")
+    if not player_hp.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            render_flag_table(player_hp.sort_values("High Pressure %").head(10), player_col="Player", numeric_cols=["High Pressure %"])
+        with col2:
+            render_flag_table(player_hp.sort_values("High Pressure %", ascending=False).head(10), player_col="Player", numeric_cols=["High Pressure %"])
+    else:
+        st.info("No pressure points found.")
+
+
+    st.subheader("Point Win Rates Under Pressure")
+    if not rankings_display_filtered.empty:
+        col1, col2 = st.columns(2)
+        with col1:
+            render_flag_table(rankings_display_filtered.sort_values("Win % (High Pressure)", ascending=False).head(10), player_col="Player", numeric_cols=["Win % (High Pressure)"])
+        with col2:
+            render_flag_table(rankings_display_filtered.sort_values("Win % (High Pressure)").head(10), player_col="Player", numeric_cols=["Win % (High Pressure)"])
+    else:
+        st.info("No pressure points found.")
+    print_memory("after rendering tab1")
+    # Delete large intermediate DataFrames
+    del st.session_state.df_tab1, df_tab1, player_points, player_hp, rankings, rankings_display_filtered, bubble_chart, vline, hline
+    # Force garbage collection
+    import gc; gc.collect()
 
 # ---- TAB 2: Extreme Events ----
 with tab2:
     st.subheader("🏆 Top 10 Most Unlikely Wins")
-    if "p1_win_prob_before" in df.columns and "match_winner" in df.columns:
-        df_valid = df[df["match_winner"].notna()].copy()
-        df_valid = filter_matches_by_sets(df_valid)
-        df_valid["winner_prob_before"] = df_valid.apply(
-            lambda r: r["p1_win_prob_before"] if r["match_winner"] == r["player1"] else 1 - r["p1_win_prob_before"],
-            axis=1
-        )
-        df_valid[["year", "tourney_code", "match_num"]] = df_valid["match_id"].str.split("-", n=2, expand=True)
-        df_valid["tournament_name"] = df_valid["tourney_code"].map(TOURNAMENTS_MAP).fillna(df_valid["tourney_code"])
-        idxs = df_valid.groupby("match_id")["winner_prob_before"].idxmin()
-        top_unlikely = df_valid.loc[idxs].sort_values("winner_prob_before").head(10)
-        top_unlikely_display = top_unlikely[[
-            "year", "Tour", "tournament_name", "player1", "player2", "match_winner",
-            "winner_prob_before", "P1_Sets_Won", "P2_Sets_Won", "P1_Games_Won", "P2_Games_Won", "score"
-        ]].rename(columns={
-            "year": "Year", "tournament_name": "Tournament", "player1": "Player 1", "player2": "Player 2",
-            "match_winner": "Match Winner", "winner_prob_before": "Win Probability",
-            "score": "Game Score", "P1_Sets_Won": "P1 Sets", "P2_Sets_Won": "P2 Sets",
-            "P1_Games_Won": "P1 Games", "P2_Games_Won": "P2 Games"
-        })
-        # format probability as percent
-        top_unlikely_display["Win Probability"] = top_unlikely_display["Win Probability"] * 100
-        st.dataframe(top_unlikely_display.reset_index(drop=True).style.format({"Win Probability": "{:.1f}%"}), use_container_width=True)
-    else:
-        st.warning("Required columns for 'Top 10 Most Unlikely Wins' not found (p1_win_prob_before / match_winner).")
+    st.session_state.active_tab = "tab2"
 
-    st.subheader("🔥 Top 10 Most Impactful Points")
-    top_points = compute_top_points(df, top_n=10)
-    if not top_points.empty:
-        # create a display frame
-        top_points_display = top_points[[
-            "year", "Tour", "tournament_name", "player1", "player2", "score", "P1_Sets_Won", "P2_Sets_Won",
-            "P1_Games_Won", "P2_Games_Won", "wp_delta_display", 
-            #"p1_win_prob_before", "p1_win_prob_if_p1_wins", "p1_win_prob_if_p2_wins", 
-            "PointWinnerName", "match_winner"
+    columns = FEATURE_COLUMNS["base"] + FEATURE_COLUMNS["win_prob"] + FEATURE_COLUMNS["serve_return"] + FEATURE_COLUMNS["score"] + FEATURE_COLUMNS["match_winner"] 
+    
+    if "df_tab1" not in st.session_state or filters_changed:
+        st.session_state.df_tab2 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter, columns)
+        st.session_state.df_tab2 = add_filtered_player_columns(st.session_state.df_tab2, selected_players)
+    df_tab2 = st.session_state.df_tab2
+
+    # df_tab2 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter, columns)
+    # df_tab2 = add_filtered_player_columns(df_tab2, selected_players)
+    print_memory("after pulling in tab2 df")
+
+    if 'p1_win_prob_before' in df_tab2.columns and 'match_winner' in df_tab2.columns:
+        df_valid = df_tab2[df_tab2['match_winner'].notna()]
+        df_valid = filter_matches_by_sets(df_valid)
+
+        # Compute pre-match win probability from the perspective of the actual winner
+        df_valid['winner_prob_before'] = df_valid.apply(
+            lambda r: r['p1_win_prob_before'] if r['match_winner'] == r['player1'] else 1 - r['p1_win_prob_before'], axis=1
+        )
+
+        # Split match_id for year/tourney/match number
+        df_valid[['year', 'tourney_code', 'match_num']] = df_valid['match_id'].str.split('-', n=2, expand=True)
+        df_valid['tournament_name'] = df_valid['tourney_code'].map(TOURNAMENTS_MAP).fillna(df_valid['tourney_code'])
+
+        # Top 10 unlikely wins
+        idxs = df_valid.groupby('match_id')['winner_prob_before'].idxmin()
+        top_unlikely = df_valid.loc[idxs].sort_values('winner_prob_before').head(10)
+
+        top_unlikely_display = top_unlikely[[
+            'year', 'Tour', 'tournament_name', 'player1', 'player2', 'match_winner',
+            'winner_prob_before', 'P1_Sets_Won', 'P2_Sets_Won', 'P1_Games_Won', 'P2_Games_Won', 'score', 'PointServer'
         ]].rename(columns={
-            "year": "Year", "tournament_name": "Tournament", "player1": "Player 1", "player2": "Player 2",
-            "wp_delta_display": "Prob. Swing", 
-            #"p1_win_prob_before": "Player1 Win Probability pre-point", "p1_win_prob_if_p1_wins": "Player1 Win Prob if Won Point", "p1_win_prob_if_p2_wins": "Player1 Win Prob if Lost Point",
-            "score": "Score", "P1_Sets_Won": "Sets_1", "P2_Sets_Won": "Sets_2",
-            "P1_Games_Won": "Games_1", "P2_Games_Won": "Games_2", "PointWinnerName":"Point Winner", "match_winner":"Match Winner"
+            'year': 'Year', 'tournament_name': 'Tournament', 'player1': 'Player 1', 'player2': 'Player 2',
+            'match_winner': 'Match Winner', 'winner_prob_before': 'Win Probability',
+            'score': 'Game Score', 'P1_Sets_Won': 'P1 Sets', 'P2_Sets_Won': 'P2 Sets',
+            'P1_Games_Won': 'P1 Games', 'P2_Games_Won': 'P2 Games', 'PointServer': 'Server'
         })
-        st.dataframe(top_points_display.reset_index(drop=True).style.format({
-            "Prob. Swing": "{:.1%}"
-            #"Player1 Win Probability pre-point": "{:.1%}",
-            #"Player1 Win Prob if Won Point": "{:.1%}",
-            #"Player1 Win Prob if Lost Point": "{:.1%}"
-        }), use_container_width=True)
+
+        top_unlikely_display['Win Probability'] *= 100  # format as percent
+
+        # Render scoreboard in two columns
+        if not top_unlikely_display.empty:
+            rows_dicts = top_unlikely_display.to_dict(orient='records')
+            half = len(rows_dicts) // 2 + len(rows_dicts) % 2
+            left_rows, right_rows = rows_dicts[:half], rows_dicts[half:]
+            col1, col2 = st.columns(2)
+
+            for row in left_rows:
+                with col1:
+                    render_scoreboard(row)
+            for row in right_rows:
+                with col2:
+                    render_scoreboard(row)
+    else:
+        st.warning("Required columns for 'Top 10 Most Unlikely Wins' not found.")
+
+    # ---- Top 10 Highest Leverage Points ----
+    st.subheader("🔥 Top 10 Highest Leverage Points (Largest Probability Swing)")
+
+    top_points = compute_top_points(df_tab2, top_n=10)
+    if not top_points.empty:
+        # Prepare display
+        top_points_display = top_points[[
+            'year', 'Tour', 'tournament_name', 'player1', 'player2', 'score',
+            'P1_Sets_Won', 'P2_Sets_Won', 'P1_Games_Won', 'P2_Games_Won',
+            'wp_delta_display', 'PointWinnerName', 'match_winner',
+            'p1_win_prob_if_p1_wins', 'p1_win_prob_if_p2_wins'
+        ]].rename(columns={
+            'year': 'Year', 'tournament_name': 'Tournament',
+            'player1': 'Player 1', 'player2': 'Player 2', 'wp_delta_display': 'Prob. Swing',
+            'score': 'Game Score', 'P1_Sets_Won': 'Sets 1', 'P2_Sets_Won': 'Sets 2',
+            'P1_Games_Won': 'Games 1', 'P2_Games_Won': 'Games 2',
+            'PointWinnerName': 'Point Winner', 'match_winner': 'Match Winner'
+        })
+
+        # Add auxiliary columns
+        top_points_display = top_points_display.reset_index(drop=True)
+        top_points_display['Point_Label'] = top_points_display.index.astype(str)
+        top_points_display['prob_min'] = top_points_display[['p1_win_prob_if_p1_wins', 'p1_win_prob_if_p2_wins']].min(axis=1)
+        top_points_display['prob_max'] = top_points_display[['p1_win_prob_if_p1_wins', 'p1_win_prob_if_p2_wins']].max(axis=1)
+        top_points_display['prob_delta'] = top_points_display['prob_max'] - top_points_display['prob_min']
+        top_points_display['Match Score'] = (
+            top_points_display['Sets 1'].astype(str) + "-" + top_points_display['Sets 2'].astype(str)
+            + ", " + top_points_display['Games 1'].astype(str) + "-" + top_points_display['Games 2'].astype(str)
+        )
+        top_points_display['Players'] = top_points_display['Player 1'] + " vs " + top_points_display['Player 2']
+        top_points_display['Year & Tournament'] = top_points_display['Year'].astype(str) + " - " + top_points_display['Tournament']
+
+        # Melt for Altair
+        df_melt = top_points_display.melt(
+            id_vars=['Point_Label', 'Prob. Swing', 'Player 1', 'Player 2', 'Players', 'Year & Tournament',
+                     'Tournament', 'Match Score', 'Game Score', 'Point Winner', 'Match Winner'],
+            value_vars=['p1_win_prob_if_p1_wins', 'p1_win_prob_if_p2_wins'],
+            var_name='Scenario',
+            value_name='Win Probability'
+        )
+        df_melt['Win Probability Percent'] = df_melt['Win Probability'] * 100
+
+        # Map scenario to actual point outcome
+        def get_point_color(row):
+            if row['Scenario'] == 'p1_win_prob_if_p1_wins' and row['Point Winner'] == row['Player 1']:
+                return 'Actual'
+            elif row['Scenario'] == 'p1_win_prob_if_p2_wins' and row['Point Winner'] == row['Player 2']:
+                return 'Actual'
+            else:
+                return 'Predicted'
+
+        df_melt['Point Outcome'] = df_melt.apply(get_point_color, axis=1)
+
+        # Altair charts
+        labels_sorted = top_points_display.sort_values('prob_delta', ascending=False)['Point_Label'].tolist()
+        chart_height = 500
+        base = alt.Chart(df_melt).encode(y=alt.Y('Point_Label:N', sort=labels_sorted, axis=None))
+        lines = alt.Chart(top_points_display).mark_rule(color='orange').encode(
+            y=alt.Y('Point_Label:N', sort=labels_sorted, axis=None),
+            x='prob_min:Q',
+            x2='prob_max:Q',
+            tooltip=[alt.Tooltip('Players:N', title='Match'),
+                     alt.Tooltip('Year & Tournament:N', title='Tournament'),
+                     alt.Tooltip('Match Score:N'),
+                     alt.Tooltip('Game Score:N'),
+                     alt.Tooltip('Point Winner:N'),
+                     alt.Tooltip('Match Winner:N'),
+                     alt.Tooltip('prob_delta:Q', title='Win Probability Delta', format=".1%")]
+        )
+        points = base.mark_circle(size=150).encode(
+            x=alt.X('Win Probability:Q', title='Win Probability', axis=alt.Axis(format='.0%')),
+            color=alt.Color('Point Outcome:N', scale=alt.Scale(domain=['Actual', 'Predicted'], range=['green','lightgray'])),
+            tooltip=[alt.Tooltip('Players:N', title='Match'),
+                     alt.Tooltip('Year & Tournament:N', title='Tournament'),
+                     alt.Tooltip('Match Score:N'),
+                     alt.Tooltip('Game Score:N'),
+                     alt.Tooltip('Point Winner:N'),
+                     alt.Tooltip('Match Winner:N'),
+                     alt.Tooltip('Win Probability:Q', title='Win Probability', format=".1%")]
+        )
+        main_chart = (lines + points).properties(width=600, height=chart_height)
+        left_labels = alt.Chart(top_points_display).mark_text(align='right', dx=-10).encode(
+            y=alt.Y('Point_Label:N', sort=labels_sorted, axis=None),
+            text='Player 1:N'
+        ).properties(width=100, height=chart_height)
+        right_labels = alt.Chart(top_points_display).mark_text(align='left', dx=10).encode(
+            y=alt.Y('Point_Label:N', sort=labels_sorted, axis=None),
+            text='Player 2:N'
+        ).properties(width=100, height=chart_height)
+
+        final_chart = alt.hconcat(left_labels, main_chart, right_labels)
+        st.altair_chart(final_chart, use_container_width=True)
+
     else:
         st.info("No top impactful points found.")
-    st.subheader("💪 Top 10 Most Clutch Matches")
+    # After top unlikely wins are rendered
+    del st.session_state.df_tab2, df_tab2, df_valid, top_unlikely, top_unlikely_display, top_points, top_points_display, df_melt, base, lines, points, final_chart
+    import gc; gc.collect()
+    print_memory("after rendering tab2")
 
-    # Compute clutch if your function exists
-    clutch_df = compute_match_player_clutch(df)
-
-    if not clutch_df.empty:
-        # Aggregate by match and player
-        clutch_agg = (
-            clutch_df.groupby(["match_id", "player"], as_index=False)
-            .agg({"Total_Clutch_Score": "sum"})
-        )
-
-        # Merge basic match info (year, player1, player2)
-        clutch_agg = clutch_agg.merge(
-            df[["match_id", "year", "Tour","tourney_code","player1", "player2"]].drop_duplicates(),
-            on="match_id",
-            how="left"
-        )
-
-        # Map tournament codes to friendly names
-        clutch_agg["Tournament"] = clutch_agg["tourney_code"].map(TOURNAMENTS_MAP).fillna(clutch_agg["tourney_code"])
-
-        # Sort by total clutch score and take top 10
-        clutch_agg = clutch_agg.sort_values("Total_Clutch_Score", ascending=False).head(10)
-
-        clutch_display = clutch_agg.rename(columns={
-            "player": "Match Winner",
-            "Total_Clutch_Score": "Clutch Score",
-            "year": "Year",
-            "player1": "Player 1",
-            "player2": "Player 2"
-        })[["Year", "Tour","Tournament", "Player 1", "Player 2", "Match Winner", "Clutch Score"]]
-
-        st.dataframe(
-            clutch_display.reset_index(drop=True).style.format({"Clutch Score": "{:.3f}"}),
-            use_container_width=True
-        )
-    else:
-        st.info("No clutch points/matches found.")
-
-                
-    st.subheader("📈 Most Significant Comebacks / Blown Leads")
-    swings_df = compute_match_swings(df)
-    if not swings_df.empty:
-        # convert win probability to percent for display
-        swings_df["Winner Low Probability %"] = swings_df["Winner Low Probability"] * 100
-        display_cols = ["Year", "Tour", "Tournament", "Winner", "Loser", "ATP/WTA Points Gained/Lost", "Winner Low Probability %", "ATP Points at Stake"]
-        st.dataframe(swings_df[display_cols].rename(columns={"Winner Low Probability %": "Winner Low Probability"}).reset_index(drop=True).style.format({
-            "ATP/WTA Points Gained/Lost": "{:.1f}",
-            "Winner Low Probability": "{:.1f}%",
-            "ATP Points at Stake": "{:.0f}"
-        }), use_container_width=True)
-    else:
-        st.info("No swings data returned.")
-# ---- TAB 3: Summary Statistics ----
-with tab3:
-    st.subheader("⚡Server Performance by Game Score")
-    score_summary = compute_score_summary(df)
-    if not score_summary.empty:
-        st.dataframe(
-            score_summary.rename(columns={
-                "score": "Game Score",
-                "Average_Importance": "Average Probability Swing",
-                "Win_Rate": "Win Rate",
-                "Points": "Total Points"
-            }).reset_index(drop=True).style.format({
-                "Average Probability Swing": "{:.1%}",
-                "Win Rate": "{:.2%}",
-                "Total Points": "{:,.0f}"
-            }),
-            use_container_width=True
-        )
-    else:
-        st.info("No score summary available.")
-
-    st.subheader("🧱 Win Rate by Game Score Grid")
-
-    # --- Compute numeric win columns ---
-    df["server_win"] = (df["PointWinner"] == df["PointServer"]).astype(int)
-    df["returner_win"] = (df["PointWinner"] != df["PointServer"]).astype(int)
-
-    # --- Extract individual score components ---
-    df[["server_score_val", "returner_score_val"]] = df["score"].str.split("-", expand=True)
-
-    # --- Filter to valid rows ---
-    valid_scores = ["0", "15", "30", "40", "AD"]
-    score_grid_df = df[
-        df["server_score_val"].isin(valid_scores) &
-        df["returner_score_val"].isin(valid_scores)
-    ].copy()
-
-    score_grid_df["win_numeric"] = score_grid_df["server_win"]
-
-    # --- Group by score and compute win rate & point counts ---
-    heatmap_data = (
-        score_grid_df.groupby(["server_score_val", "returner_score_val"], dropna=False)["win_numeric"]
-        .agg(Win_Rate="mean", Points="count")
-        .reset_index()
-    )
-
-    # --- Convert to ordered categories for axes ---
-    score_order = ["0", "15", "30", "40", "AD"]
-    heatmap_data["server_score_val"] = pd.Categorical(
-        heatmap_data["server_score_val"], categories=score_order, ordered=True
-    )
-    heatmap_data["returner_score_val"] = pd.Categorical(
-        heatmap_data["returner_score_val"], categories=score_order, ordered=True
-    )
-
-    # --- Altair heatmap ---
-    heatmap = alt.Chart(heatmap_data).mark_rect().encode(
-        x=alt.X("server_score_val:N", title="Server Score"),
-        y=alt.Y("returner_score_val:N", title="Returner Score"),
-        color=alt.Color("Win_Rate:Q", scale=alt.Scale(scheme="viridis"), title="Win Rate"),
-        tooltip=[
-            "server_score_val",
-            "returner_score_val",
-            alt.Tooltip("Win_Rate", format=".2%"),
-            "Points"
-        ]
-    ).properties(
-        width=400,
-        height=400,
-        title="Win Rate by Game Score"
-    )
-
-    st.altair_chart(heatmap, use_container_width=True)
-
+st.session_state.last_filters = filters
