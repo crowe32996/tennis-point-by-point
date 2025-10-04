@@ -298,7 +298,7 @@ def render_tab1():
     rankings = rankings.merge(player_hp[["Player", "High Pressure %"]], on="Player", how="left")
     rankings = rankings.merge(player_points, on="Player", how="left")
 
-    rankings_display_filtered = rankings[rankings["Total Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
+    rankings_display_filtered = rankings[rankings["Total_Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
     rankings_display_filtered = rankings_display_filtered.rename(columns={"High Pressure %": "% High Pressure Points"})
 
     # ---- Bubble chart ----
