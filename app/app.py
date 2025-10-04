@@ -44,6 +44,7 @@ def get_sidebar_options():
     return tournaments, tours, players, years
 
 TOURNAMENTS_SIDEBAR, TOUR_SIDEBAR, PLAYERS_SIDEBAR, ALL_YEARS = get_sidebar_options()
+st.sidebar.header("Filters")
 
 # Year range
 selected_year_range = st.sidebar.select_slider(
@@ -74,7 +75,6 @@ min_points_filter = st.sidebar.slider(
 
 
 st.set_page_config(layout="wide", page_title="Tennis Historical Performance")
-st.sidebar.header("Filters")
 
 
 # print_memory("before any major ops")
@@ -187,7 +187,7 @@ def render_tab0():
         on='Player',
         how='inner'
     )
-    player_stats_df['Clutch_Percentile'] = player_stats_df['Expected Points Added (EPA)'].rank(pct=True)
+    player_stats_df['Clutch Percentile'] = player_stats_df['Expected Points Added (EPA)'].rank(pct=True)
 
     # ---- Bubble chart ----
     tennis_colors = alt.Scale(domain=[player_stats_df['Total_Points'].min(),
@@ -196,20 +196,20 @@ def render_tab0():
 
     bubble = alt.Chart(player_stats_df).mark_circle().encode(
         x=alt.X('Consistency Index', scale=alt.Scale(domain=[0,1])),
-        y=alt.Y('Clutch_Percentile', scale=alt.Scale(domain=[0,1])),
+        y=alt.Y('Clutch Percentile', scale=alt.Scale(domain=[0,1])),
         size=alt.Size('Expected Points Added (EPA)', scale=alt.Scale(range=[50, 1000])),
         color=alt.Color('Total_Points', scale=tennis_colors),
         tooltip=[
             alt.Tooltip('Player:N'),
             alt.Tooltip('Total_Points:Q', format=','),
             alt.Tooltip('Consistency Index:Q', format='.1%'),
-            alt.Tooltip('Clutch_Percentile:Q', format='.1%'),
+            alt.Tooltip('Clutch Percentile:Q', format='.1%'),
             alt.Tooltip('Expected Points Added (EPA):Q', format='.0f')
         ]
     )
 
     vline = alt.Chart(pd.DataFrame({'Consistency Index':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(x='Consistency Index:Q')
-    hline = alt.Chart(pd.DataFrame({'Clutch_Percentile':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(y='Clutch_Percentile:Q')
+    hline = alt.Chart(pd.DataFrame({'Clutch Percentile':[0.5]})).mark_rule(color='gray', strokeDash=[4,4]).encode(y='Clutch Percentile:Q')
 
     bubble_chart = alt.layer(bubble, vline, hline).properties(width=800, height=500, title='Player Consistency vs Clutchness').resolve_scale(x='shared', y='shared')
     st.altair_chart(bubble_chart, use_container_width=True, key=f"bubble00_{selected_tour}_{'-'.join(map(str, selected_years))}_{selected_tourney}")
