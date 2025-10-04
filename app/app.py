@@ -564,7 +564,7 @@ for i, tab in enumerate(tabs):
             st.subheader("Sources & Links")
             st.markdown(
                 """
-                - **Project Repository:** [GitHub - Tennis Consistency & Clutchness Analysis](https://github.com/crowe32996/tennis-point-by-point)
+                - **Project Repository:** [Charlie Rowe - Tennis Consistency & Clutchness Analysis](https://github.com/crowe32996/tennis-point-by-point)
                 - **Raw Data:** Point level data sourced from [Jeff Sackmann's Tennis Data Repository](https://github.com/JeffSackmann/tennis_slam_pointbypoint) .
                 """
             )
