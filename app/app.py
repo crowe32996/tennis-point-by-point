@@ -266,10 +266,10 @@ def render_tab1():
 
     # ---- Compute total points per player ----
     player_points = df_tab1.groupby('player1')['match_id'].count().reset_index().rename(
-        columns={'match_id': 'Total Points', 'player1': 'Player'}
+        columns={'match_id': 'Total_Points', 'player1': 'Player'}
     )
     df_tab1 = df_tab1.merge(player_points, left_on='player1', right_on='Player', how='left')
-    df_tab1 = df_tab1[df_tab1['Total Points'] >= min_points_filter]
+    df_tab1 = df_tab1[df_tab1['Total_Points'] >= min_points_filter]
 
     pressure_threshold = 25
     threshold_value = df_tab1["importance"].quantile(1 - pressure_threshold / 100)
@@ -298,7 +298,7 @@ def render_tab1():
     rankings = rankings.merge(player_hp[["Player", "High Pressure %"]], on="Player", how="left")
     rankings = rankings.merge(player_points, on="Player", how="left")
 
-    rankings_display_filtered = rankings[rankings["Total Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
+    rankings_display_filtered = rankings[rankings["Total_Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
     rankings_display_filtered = rankings_display_filtered.rename(columns={"High Pressure %": "% High Pressure Points"})
 
     # ---- Bubble chart ----
