@@ -561,4 +561,10 @@ for i, tab in enumerate(tabs):
             """)
             st.subheader("Assumptions")
             st.markdown("- Simulation count can be increased for increased accuracy, but 1,000 per scenario (3,000 per point) was used to weigh scale and accuracy.\n- Small-sample players may be noisy, so minimum total point threshold is set to 400 points per year selected for ATP, and 200 points per year selected for WTA.")
-    
+            st.subheader("Sources & Links")
+            st.markdown(
+                """
+                - **Project Repository:** [GitHub - Tennis Consistency & Clutchness Analysis](https://github.com/crowe32996/tennis-point-by-point)
+                - **Raw Data:** Point level data sourced from [Jeff Sackmann's Tennis Data Repository](https://github.com/JeffSackmann/tennis_slam_pointbypoint) .
+                """
+            )
