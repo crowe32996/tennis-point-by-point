@@ -178,8 +178,8 @@ def render_tab0():
         / (player_consistency_df['Weighted_Consistency'].max() - player_consistency_df['Weighted_Consistency'].min())
     )
 
-    player_consistency_df = player_consistency_df.rename(columns={'player':'Player', 'Consistency_Percentile': 'Consistency Index'})
-    player_consistency_df = player_consistency_df[player_consistency_df['Total_Points'] >= min_points_filter]
+    player_consistency_df = player_consistency_df.rename(columns={'player':'Player', 'Consistency_Percentile': 'Consistency Index', 'Total_Points': 'Total Points'})
+    player_consistency_df = player_consistency_df[player_consistency_df['Total Points'] >= min_points_filter]
 
     # ---- Merge with Clutch ----
     player_stats_df = player_consistency_df.merge(
@@ -190,18 +190,18 @@ def render_tab0():
     player_stats_df['Clutch Percentile'] = player_stats_df['Expected Points Added (EPA)'].rank(pct=True)
 
     # ---- Bubble chart ----
-    tennis_colors = alt.Scale(domain=[player_stats_df['Total_Points'].min(),
-                                    player_stats_df['Total_Points'].max()],
+    tennis_colors = alt.Scale(domain=[player_stats_df['Total Points'].min(),
+                                    player_stats_df['Total Points'].max()],
                             range=["#ffffcc", "#ccff00"])
 
     bubble = alt.Chart(player_stats_df).mark_circle().encode(
         x=alt.X('Consistency Index', scale=alt.Scale(domain=[0,1])),
         y=alt.Y('Clutch Percentile', scale=alt.Scale(domain=[0,1])),
         size=alt.Size('Expected Points Added (EPA)', scale=alt.Scale(range=[50, 1000])),
-        color=alt.Color('Total_Points', scale=tennis_colors),
+        color=alt.Color('Total Points', scale=tennis_colors),
         tooltip=[
             alt.Tooltip('Player:N'),
-            alt.Tooltip('Total_Points:Q', format=','),
+            alt.Tooltip('Total Points:Q', format=','),
             alt.Tooltip('Consistency Index:Q', format='.1%'),
             alt.Tooltip('Clutch Percentile:Q', format='.1%'),
             alt.Tooltip('Expected Points Added (EPA):Q', format='.0f')
@@ -266,10 +266,10 @@ def render_tab1():
 
     # ---- Compute total points per player ----
     player_points = df_tab1.groupby('player1')['match_id'].count().reset_index().rename(
-        columns={'match_id': 'Total_Points', 'player1': 'Player'}
+        columns={'match_id': 'Total Points', 'player1': 'Player'}
     )
     df_tab1 = df_tab1.merge(player_points, left_on='player1', right_on='Player', how='left')
-    df_tab1 = df_tab1[df_tab1['Total_Points'] >= min_points_filter]
+    df_tab1 = df_tab1[df_tab1['Total Points'] >= min_points_filter]
 
     pressure_threshold = 25
     threshold_value = df_tab1["importance"].quantile(1 - pressure_threshold / 100)
@@ -298,7 +298,7 @@ def render_tab1():
     rankings = rankings.merge(player_hp[["Player", "High Pressure %"]], on="Player", how="left")
     rankings = rankings.merge(player_points, on="Player", how="left")
 
-    rankings_display_filtered = rankings[rankings["Total_Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
+    rankings_display_filtered = rankings[rankings["Total Points"] >= min_points_filter].sort_values("Clutch Delta", ascending=False)
     rankings_display_filtered = rankings_display_filtered.rename(columns={"High Pressure %": "% High Pressure Points"})
 
     # ---- Bubble chart ----
