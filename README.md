@@ -48,8 +48,10 @@ The difference between the match probabilities in these scenarios is defined as 
 
 ---
 
----
+## Architecture
 
+### Database Structure
+![Entity Relationship Diagram](images/entity_relationship_diagram.png)
 
 
 ## File Overview
@@ -62,8 +64,8 @@ The project consists of the following components:
 2. **`point_importance_simulation.py`**  
    Contains the core Monte Carlo simulation logic to simulate tennis points, games, tiebreaks, sets, and matches. Calculates the importance of each point by estimating how winning or losing it affects the player’s overall chance of winning the match.
 
-3. **`main_full_run.py`**  
-   Runs the importance simulation over the entire dataset in chunks (to handle large files efficiently), and saves the enriched results with importance scores into a DuckDB database and an output CSV.
+3. **`run_simulations.py`**  
+   Uses PySpark for efficient handling of currently 1.8B simulations being called using point_importance simulation.
 
 4. **`transform.py`**  
    Loads the DuckDB, and performs database transformations to restructure data and create tables in DuckDB, performing aggregations and getting data ready for efficient querying.
