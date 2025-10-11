@@ -202,11 +202,10 @@ def render_scoreboard(row, height = 130):
     else:
         p2_name = f"<strong>{p2_name}</strong>"
 
-    # Split game score at hyphen
     if "-" in str(row["Game Score"]):
         score_parts = row["Game Score"].split("-", 1)
-        score_p1 = score_parts[0] if server_first else score_parts[1]
-        score_p2 = score_parts[1] if server_first else score_parts[0]
+        score_p1 = score_parts[0]
+        score_p2 = score_parts[1]
     else:
         score_p1 = row["Game Score"]
         score_p2 = row["Game Score"]
@@ -214,13 +213,13 @@ def render_scoreboard(row, height = 130):
     html = f"""
     <div style="
         border: 2px solid #ddd; 
-        border-radius: 12px; 
-        padding: 4px; 
-        margin-bottom: 2px; 
+        border-radius: 0px; 
+        padding: 2px; 
+        margin-bottom: 0px; 
         box-shadow: 1px 1px 4px rgba(0,0,0,0.08);
         font-family: Arial, sans-serif;
     ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0px;">
             <span style="font-weight: bold; font-size: 1em;">{row['Tournament']} {row['Year']}</span>
             <span style="font-size: 1.2em;">{tournament_logo}</span>
         </div>

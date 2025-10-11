@@ -16,9 +16,12 @@ def run_command(cmd):
         sys.exit(1)
 
 def main():
-    # Get the project root (assumes this script is in project root)
     PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    print("THIS IS THE CPU COUNT: ", os.cpu_count())
+    print("THIS IS THE CPU COUNT:", os.cpu_count())
+
+    requirements_path = os.path.join(PROJECT_ROOT, "requirements.txt").replace("\\", "/")
+    print("\nInstalling dependencies from requirements.txt...")
+    run_command(f'"{PYTHON_PATH}" -m pip install --upgrade --force-reinstall -r "{requirements_path}"')
 
     # Step 1: Prepare data
     prep_script = os.path.join(PROJECT_ROOT, "scripts", "prepare_data.py").replace("\\", "/")

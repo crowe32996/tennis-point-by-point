@@ -18,3 +18,5 @@ outputs/all_points_with_importance_local.csv
 outputs/all_points_with_importance.csv
 outputs/all_points_with_importance.parquet
 
+# Virtual environment
+venv/

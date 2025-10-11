@@ -4,8 +4,8 @@ import os
 # Add the project root (one level above scripts/) to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-17.0.16+8"
-os.environ["PYSPARK_PYTHON"] = r"C:\Users\peppe\AppData\Local\Programs\Python\Python311\python.exe"
-os.environ["PYSPARK_DRIVER_PYTHON"] = r"C:\Users\peppe\AppData\Local\Programs\Python\Python311\python.exe"
+os.environ["PYSPARK_PYTHON"] = os.path.join(os.getcwd(), "venv", "Scripts", "python.exe")
+os.environ["PYSPARK_DRIVER_PYTHON"] = os.path.join(os.getcwd(), "venv", "Scripts", "python.exe")
 os.environ["HADOOP_HOME"] = r"C:\hadoop\hadoop-3.3.6"
 os.environ["PATH"] = r"C:\hadoop\hadoop-3.3.6\bin;" + os.environ["PATH"]
 
@@ -16,12 +16,23 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import pandas_udf, col, when, struct, create_map, lit, lower
 from pyspark.sql.types import StructType, StructField, DoubleType
 from itertools import chain
+from pyspark.sql.functions import udf
+from pyspark.sql.types import IntegerType
+import time
+
+# Map tennis score strings to numeric points
+score_map = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4}
+
+def score_to_int(score_str):
+    return score_map.get(str(score_str), 0)
+
+score_udf = udf(score_to_int, IntegerType())
 
 INPUT_FILE = "data/processed/merged_tennis_data.csv"
 OUTPUT_FILE = "outputs/all_points_with_importance.csv"
 PARQUET_FILE = r"C:\Users\peppe\OneDrive\Desktop\Charlie\Data_Projects\tennis-point-by-point\outputs\all_points_with_importance.parquet"
 #CHUNK_SIZE = 10000
-N_SIMULATIONS = 1000
+N_SIMULATIONS = 500
 TABLE_NAME = "importance_results"
 
 def prompt_yes_no(question):
@@ -39,6 +50,8 @@ def main():
     .config("spark.executor.heartbeatInterval", "60s") \
     .config("spark.network.timeout", "600s") \
     .getOrCreate()
+    
+    spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 
     # Read CSV as Spark DataFrame
     df_spark = spark.read.csv(INPUT_FILE, header=True, inferSchema=True)
@@ -68,7 +81,7 @@ def main():
     # Convert dict into Spark map expression
     mapping_expr = create_map([lit(x) for x in chain(*round_points_map.items())])
 
-    #df_spark = df_spark.limit(100)  # <--- only 100 rows, full 1000 sims will run on them
+    # df_spark = df_spark.limit(500000)  # <--- only 100 rows, full 1000 sims will run on them
 
     # Add column (renamed to points_stake for clarity)
     df_spark = df_spark.withColumn("points_stake", mapping_expr[col("round")])
@@ -85,8 +98,13 @@ def main():
 
     if rerun_sim:
         print("Running full simulation with Spark and overwriting DuckDB table...")
+        start_time = time.time()
 
-        # --- Define the schema of the UDF output
+        # --- Convert score strings to numeric points for the optimized UDF ---
+        df_spark = df_spark.withColumn("p1_points", score_udf("P1Score_Pre")) \
+                        .withColumn("p2_points", score_udf("P2Score_Pre"))
+
+        # --- Define the schema of the UDF output ---
         schema = StructType([
             StructField("p1_win_prob_before", DoubleType(), True),
             StructField("p1_win_prob_if_p1_wins", DoubleType(), True),
@@ -137,12 +155,24 @@ def main():
             CREATE OR REPLACE TABLE {TABLE_NAME}
             AS SELECT * FROM parquet_scan('{PARQUET_FILE}/*.parquet');
         """)
+        df_spark = df_spark.sort(["match_id", "SetNo", "PointNumber"])
 
         # Save full CSV as a single file for easy inspection
-        df_spark.coalesce(1).write.csv(OUTPUT_FILE, header=True, mode="overwrite")
+        df_spark.write.csv(OUTPUT_FILE, header=True, mode="overwrite")
         print(f"Done! Full results saved to {OUTPUT_FILE}")
 
         con.close()
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+        num_rows = df_spark.count()  # actual number of rows processed
+        total_sims = num_rows * N_SIMULATIONS
+
+        print(f"Simulation completed for {num_rows} rows with {N_SIMULATIONS} simulations per row.")
+        print(f"Total point probability simulations: ~{total_sims}")
+        print(f"Elapsed time: {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)")
+        print(f"Average time per simulation: {elapsed/total_sims:.6f} seconds")
+
         spark.stop()
 
     else:

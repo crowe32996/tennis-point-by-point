@@ -380,6 +380,10 @@ def render_tab2():
         df_valid[['year', 'tourney_code', 'match_num']] = df_valid['match_id'].str.split('-', n=2, expand=True)
 
         # Top 10 unlikely wins
+        # Ensure rows are in chronological order within each match
+        df_valid = df_valid.sort_values(['match_id', 'point_number'])
+        df_valid['winner_prob_before'] = df_valid['winner_prob_before'].round(5)
+
         idxs = df_valid.groupby('match_id')['winner_prob_before'].idxmin()
         top_unlikely = df_valid.loc[idxs].sort_values('winner_prob_before').head(10)
 
