@@ -4,6 +4,9 @@
 
 ![Streamlit App](images/streamlit_preview1.png)
 ![Streamlit App](images/streamlit_preview2.png)
+![Streamlit App](images/streamlit_preview3.png)
+![Streamlit App](images/streamlit_preview4.png)
+![Streamlit App](images/streamlit_preview5.png)
 
 ## Methodology
 
