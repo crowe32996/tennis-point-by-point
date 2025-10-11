@@ -53,6 +53,7 @@ The difference between the match probabilities in these scenarios is defined as 
 ### Database Structure
 ![Entity Relationship Diagram](images/entity_relationship_diagram.png)
 
+![Architecture Diagram](images/architecture_diagram.png)
 
 ## File Overview
 
