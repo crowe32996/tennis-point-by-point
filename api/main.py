@@ -13,9 +13,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.config import MIN_POINTS_PER_YEAR, HIGH_PRESSURE_PERCENTILE
 
-# Load player country data
-BASE_DIR = Path(__file__).resolve().parent.parent
-PLAYER_COUNTRY_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
+# Load player country data (file is in api/ folder for deployment)
+API_DIR = Path(__file__).resolve().parent
+PLAYER_COUNTRY_FILE = API_DIR / "player_countries.csv"
 player_country_df = pd.read_csv(PLAYER_COUNTRY_FILE)
 PLAYER_COUNTRIES = dict(zip(player_country_df["player"], player_country_df["country"]))
 

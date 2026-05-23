@@ -6,17 +6,15 @@ WORKDIR /app
 COPY api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy API code
+# Copy API code (includes player_countries.csv now)
 COPY api/ ./api/
 
-# Copy config (create app directory)
+# Copy config
 RUN mkdir -p ./app
 COPY app/config.py ./app/config.py
 
-# Copy data files (create directories)
+# Copy DuckDB database
 COPY outputs/ ./outputs/
-RUN mkdir -p ./data/processed
-COPY data/processed/player_countries.csv ./data/processed/player_countries.csv
 
 # Expose port
 EXPOSE 8000
