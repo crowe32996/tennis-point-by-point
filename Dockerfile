@@ -8,10 +8,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy API code
 COPY api/ ./api/
+
+# Copy config (create app directory)
+RUN mkdir -p ./app
 COPY app/config.py ./app/config.py
 
-# Copy data files
+# Copy data files (create directories)
 COPY outputs/ ./outputs/
+RUN mkdir -p ./data/processed
 COPY data/processed/player_countries.csv ./data/processed/player_countries.csv
 
 # Expose port
