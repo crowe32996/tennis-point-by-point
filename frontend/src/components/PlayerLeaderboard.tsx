@@ -56,6 +56,13 @@ const HEADSHOTS_RAW: Record<string, string> = {
   "m. keys": "https://r2.thesportsdb.com/images/media/player/cutout/snjegu1748966783.png",
   "p. kvitova": "https://r2.thesportsdb.com/images/media/player/cutout/r6bt8q1723379145.png",
   "b. haddad maia": "https://r2.thesportsdb.com/images/media/player/cutout/honejy1675265171.png",
+  "a. barty": "https://r2.thesportsdb.com/images/media/player/cutout/2mqbgh1550427192.png",
+  "s. kenin": "https://r2.thesportsdb.com/images/media/player/cutout/22kmym1716789550.png",
+  "a. anisimova": "https://r2.thesportsdb.com/images/media/player/cutout/w051151748966979.png",
+  "n. osaka": "https://r2.thesportsdb.com/images/media/player/cutout/4njchy1716751197.png",
+  "s. halep": "https://r2.thesportsdb.com/images/media/player/cutout/xs1tmh1709299205.png",
+  "k. pliskova": "https://r2.thesportsdb.com/images/media/player/cutout/fxuxfs1550425600.png",
+  "v. azarenka": "https://r2.thesportsdb.com/images/media/player/cutout/7k14yn1716755396.png",
 }
 
 // Helper to get headshot with case-insensitive matching
