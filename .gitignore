@@ -5,7 +5,8 @@ __pycache__/
 # Data files
 data/raw/
 data/processed/
-!data/processed/player_countries.csv   # keep this one
+!data/processed/player_countries.csv
+!data/processed/player_images.csv
 # merged_tennis_data.csv stays ignored
 
 #*.db

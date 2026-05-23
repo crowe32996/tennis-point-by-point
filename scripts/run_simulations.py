@@ -1,13 +1,28 @@
 import sys
 import os
+from pathlib import Path
 
 # Add the project root (one level above scripts/) to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-17.0.16+8"
-os.environ["PYSPARK_PYTHON"] = os.path.join(os.getcwd(), "venv", "Scripts", "python.exe")
-os.environ["PYSPARK_DRIVER_PYTHON"] = os.path.join(os.getcwd(), "venv", "Scripts", "python.exe")
-os.environ["HADOOP_HOME"] = r"C:\hadoop\hadoop-3.3.6"
-os.environ["PATH"] = r"C:\hadoop\hadoop-3.3.6\bin;" + os.environ["PATH"]
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(PROJECT_ROOT))
+
+# Configure Spark environment from env vars (set these in your .env or shell profile)
+# Required: JAVA_HOME, HADOOP_HOME (Windows only)
+# Optional: PYSPARK_PYTHON, PYSPARK_DRIVER_PYTHON
+if "JAVA_HOME" not in os.environ:
+    print("Warning: JAVA_HOME not set. Please set it to your JDK installation path.")
+
+# Auto-detect Python executable for PySpark if not set
+if "PYSPARK_PYTHON" not in os.environ:
+    os.environ["PYSPARK_PYTHON"] = sys.executable
+if "PYSPARK_DRIVER_PYTHON" not in os.environ:
+    os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+
+# On Windows, HADOOP_HOME may be needed for winutils
+if sys.platform == "win32" and "HADOOP_HOME" in os.environ:
+    hadoop_bin = os.path.join(os.environ["HADOOP_HOME"], "bin")
+    if hadoop_bin not in os.environ["PATH"]:
+        os.environ["PATH"] = hadoop_bin + ";" + os.environ["PATH"]
 
 import pandas as pd
 import duckdb
@@ -28,10 +43,10 @@ def score_to_int(score_str):
 
 score_udf = udf(score_to_int, IntegerType())
 
-INPUT_FILE = "data/processed/merged_tennis_data.csv"
-OUTPUT_FILE = "outputs/all_points_with_importance.csv"
-PARQUET_FILE = r"C:\Users\peppe\OneDrive\Desktop\Charlie\Data_Projects\tennis-point-by-point\outputs\all_points_with_importance.parquet"
-#CHUNK_SIZE = 10000
+INPUT_FILE = PROJECT_ROOT / "data" / "processed" / "merged_tennis_data.csv"
+OUTPUT_FILE = PROJECT_ROOT / "outputs" / "all_points_with_importance.csv"
+PARQUET_FILE = PROJECT_ROOT / "outputs" / "all_points_with_importance.parquet"
+DUCKDB_FILE = PROJECT_ROOT / "outputs" / "sim_results.duckdb"
 N_SIMULATIONS = 500
 TABLE_NAME = "importance_results"
 
@@ -54,7 +69,7 @@ def main():
     spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 
     # Read CSV as Spark DataFrame
-    df_spark = spark.read.csv(INPUT_FILE, header=True, inferSchema=True)
+    df_spark = spark.read.csv(str(INPUT_FILE), header=True, inferSchema=True)
 
     # keep only rows where PointNumber is numeric
     df_spark = df_spark.filter(col("PointNumber").rlike("^[0-9]+$"))
@@ -90,8 +105,7 @@ def main():
     df_spark = df_spark.repartition(16)  # split into 16 parallel tasks (adjust to number of cores)
     df_spark.cache()  # keeps it in memory if used multiple times
 
-    #chunk_iter = pd.read_csv(INPUT_FILE, chunksize=CHUNK_SIZE)
-    con = duckdb.connect("outputs/sim_results.duckdb")
+    con = duckdb.connect(str(DUCKDB_FILE))
 
     # Ask whether to rerun simulations
     rerun_sim = prompt_yes_no("Recompute simulation from scratch?")
@@ -149,7 +163,7 @@ def main():
             .otherwise(col("p1_win_prob_if_p2_wins"))
         )
 
-        df_spark.write.mode("overwrite").parquet(PARQUET_FILE)
+        df_spark.write.mode("overwrite").parquet(str(PARQUET_FILE))
 
         con.execute(f"""
             CREATE OR REPLACE TABLE {TABLE_NAME}
@@ -158,7 +172,7 @@ def main():
         df_spark = df_spark.sort(["match_id", "SetNo", "PointNumber"])
 
         # Save full CSV as a single file for easy inspection
-        df_spark.write.csv(OUTPUT_FILE, header=True, mode="overwrite")
+        df_spark.write.csv(str(OUTPUT_FILE), header=True, mode="overwrite")
         print(f"Done! Full results saved to {OUTPUT_FILE}")
 
         con.close()

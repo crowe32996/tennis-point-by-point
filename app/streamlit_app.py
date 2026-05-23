@@ -6,9 +6,8 @@ import os
 import altair as alt
 from pathlib import Path
 import numpy as np
-import altair as alt
 from streamlit.components.v1 import html as components_html
-import psutil
+from config import MIN_POINTS_PER_YEAR, HIGH_PRESSURE_PERCENTILE
 
 
 # Base directory is the repo root
@@ -31,11 +30,6 @@ FEATURE_COLUMNS = {
 PLAYER_COUNTRY_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
 player_country_df = pd.read_csv(PLAYER_COUNTRY_FILE)
 player_flag_map = dict(zip(player_country_df["player"], player_country_df["country"]))
-
-def print_memory(note=""):
-    process = psutil.Process(os.getpid())
-    mem_mb = process.memory_info().rss / 1024**2  # Resident Set Size in MB
-    st.text(f"[MEMORY] {note} - {mem_mb:.2f} MB")
 
 
 @st.cache_data
@@ -366,8 +360,8 @@ def render_flag_table(df, player_col="Player", numeric_cols=None, max_height=400
     if numeric_cols is None:
         numeric_cols = [c for c in df.columns if c != player_col]
 
-    html = '<div style="overflow-y:visible;">'
-    html += '<table style="width:100%; border-collapse: collapse;">'
+    html = '<div style="overflow-y:visible; color: inherit;">'
+    html += '<table style="width:100%; border-collapse: collapse; color: inherit;">'
     html += "<tr><th style='text-align:left'>Player</th>"
     for col in numeric_cols:
         html += f"<th style='text-align:right'>{col}</th>"
@@ -698,19 +692,20 @@ def render_scoreboard(row, height = 130):
 
     html = f"""
     <div style="
-        border: 2px solid #ddd; 
-        border-radius: 12px; 
-        padding: 4px; 
-        margin-bottom: 2px; 
-        box-shadow: 1px 1px 4px rgba(0,0,0,0.08);
+        border: 2px solid currentColor;
+        border-radius: 12px;
+        padding: 4px;
+        margin-bottom: 2px;
+        box-shadow: 1px 1px 4px rgba(128,128,128,0.2);
         font-family: Arial, sans-serif;
+        color: inherit;
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
             <span style="font-weight: bold; font-size: 1em;">{row['Tournament']} {row['Year']}</span>
             <span style="font-size: 1.2em;">{tournament_logo}</span>
         </div>
 
-        <table style="width:100%; text-align: center; border-collapse: collapse; font-size: 0.9em;">
+        <table style="width:100%; text-align: center; border-collapse: collapse; font-size: 0.9em; color: inherit;">
             <tr>
                 <th style="text-align:left;">Player</th>
                 <th>Sets</th>
@@ -731,7 +726,7 @@ def render_scoreboard(row, height = 130):
             </tr>
         </table>
 
-        <div style="margin-top:2px; font-size:0.85em; color:#555; text-align:center;">
+        <div style="margin-top:2px; font-size:0.85em; opacity:0.8; text-align:center;">
             Lowest Win Probability: {row['Win Probability']:.1f}%
         </div>
     </div>
@@ -769,8 +764,6 @@ if "last_filters" not in st.session_state:
 if "force_rerun" not in st.session_state:
     st.session_state.force_rerun = False
 
-print_memory("before any major ops")
-
 
 # ---- Sidebar Filters ----
 all_years = list(range(2020, 2025))
@@ -792,7 +785,7 @@ selected_players = st.sidebar.selectbox("Player Status", PLAYERS, index=PLAYERS.
 selected_tourney = st.sidebar.selectbox("Tournament", TOURNAMENTS_SIDEBAR, index=0)
 
 # Compute default min points
-default_min_points = (400 if selected_tour == "ATP" else 200) * len(selected_years)
+default_min_points = MIN_POINTS_PER_YEAR.get(selected_tour, 200) * len(selected_years)
 min_points_filter = st.sidebar.slider(
     "Minimum Points per Player",
     min_value=0,
@@ -850,7 +843,6 @@ with tab0:
     # df_tab0 = add_filtered_player_columns(df_tab0, selected_players)
     # df_tab0 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
     # df_tab0 = add_filtered_player_columns(df_tab0, selected_players)
-    print_memory("after pulling in tab0 df")
 
     # ---- Add derived columns ----
     df_tab0["server_point_win"] = df_tab0["PointWinner"] == df_tab0["PointServer"]
@@ -952,7 +944,6 @@ with tab0:
             render_flag_table(total_clutch_df.nsmallest(10, 'Expected Points Added (EPA)'), player_col="Player", numeric_cols=["Expected Points Added (EPA)"])
     else:
         st.info("No clutch points/matches found.")
-    print_memory("after rendering tab0")
     # After rendering bubble chart and tables
     del st.session_state.df_tab0, df_tab0, df_long, match_clutch_df, total_clutch_df, player_stats_df
     import gc; gc.collect()
@@ -969,7 +960,6 @@ with tab1:
 
     # df_tab1 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter)
     # df_tab1 = add_filtered_player_columns(df_tab1, selected_players)
-    print_memory("after pulling in tab1 df")
 
     # ---- Add derived columns ----
     df_tab1["server_point_win"] = df_tab1["PointWinner"] == df_tab1["PointServer"]
@@ -987,13 +977,13 @@ with tab1:
     with st.expander("Configure High Pressure Filters"):
         pressure_threshold = st.slider(
             "Importance Threshold (Top N% of Point Probability +/-)",
-            min_value=1, max_value=50, value=25, key="pressure_thr_tab1"
+            min_value=1, max_value=50, value=HIGH_PRESSURE_PERCENTILE, key="pressure_thr_tab1"
         )
         threshold_value = df_tab1["importance"].quantile(1 - pressure_threshold / 100)
         df_tab1["is_high_pressure"] = df_tab1["importance"] >= threshold_value
 
         max_hp_points = int(df_tab1["is_high_pressure"].sum())
-        default_hp_points = min(200 if selected_tour=="ATP" else 100, max_hp_points)
+        default_hp_points = min(MIN_POINTS_PER_YEAR.get(selected_tour, 200) // 2, max_hp_points)
 
         if max_hp_points > 0:
             min_hp_points_filter = st.slider(
@@ -1076,7 +1066,6 @@ with tab1:
             render_flag_table(rankings_display_filtered.sort_values("Win % (High Pressure)").head(10), player_col="Player", numeric_cols=["Win % (High Pressure)"])
     else:
         st.info("No pressure points found.")
-    print_memory("after rendering tab1")
     # Delete large intermediate DataFrames
     del st.session_state.df_tab1, df_tab1, player_points, player_hp, rankings, rankings_display_filtered, bubble_chart, vline, hline
     # Force garbage collection
@@ -1096,7 +1085,6 @@ with tab2:
 
     # df_tab2 = load_filtered_df_sql(selected_years, selected_tour, selected_tourney, selected_players, min_points_filter, columns)
     # df_tab2 = add_filtered_player_columns(df_tab2, selected_players)
-    print_memory("after pulling in tab2 df")
 
     if 'p1_win_prob_before' in df_tab2.columns and 'match_winner' in df_tab2.columns:
         df_valid = df_tab2[df_tab2['match_winner'].notna()]
@@ -1241,6 +1229,5 @@ with tab2:
     # After top unlikely wins are rendered
     del st.session_state.df_tab2, df_tab2, df_valid, top_unlikely, top_unlikely_display, top_points, top_points_display, df_melt, base, lines, points, final_chart
     import gc; gc.collect()
-    print_memory("after rendering tab2")
 
 st.session_state.last_filters = filters

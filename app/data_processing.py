@@ -234,25 +234,25 @@ def compute_match_player_clutch(df):
         df.assign(player=df['player1'],
                   player_wp_delta=df['p1_wp_delta'],
                   points_stake=df['points_stake'],
-                  importance=df['importance']),
-                  #,is_high_pressure=df['is_high_pressure']),
+                  importance=df['importance'],
+                  is_high_pressure=df['is_high_pressure']),
         df.assign(player=df['player2'],
                   player_wp_delta=df['p2_wp_delta'],
                   points_stake=df['points_stake'],
-                  importance=df['importance'])
-                  #,is_high_pressure=df['is_high_pressure'])
+                  importance=df['importance'],
+                  is_high_pressure=df['is_high_pressure'])
     ], ignore_index=True)
 
     # Compute clutch score per point (vectorized)
     df_long['clutch_score'] = df_long['player_wp_delta'] * df_long['importance'] * df_long['points_stake']
 
     # Keep only necessary columns for aggregation
-    df_long = df_long[['match_id', 'player', 'clutch_score']]
+    df_long = df_long[['match_id', 'player', 'clutch_score', 'is_high_pressure']]
 
     # Aggregate per match, per player
     results = df_long.groupby(['match_id', 'player'], observed=True).agg(
-        Total_Clutch_Score=('clutch_score', 'sum')
-        #,High_Pressure_Points=('is_high_pressure', 'sum')
+        Total_Clutch_Score=('clutch_score', 'sum'),
+        High_Pressure_Points=('is_high_pressure', 'sum')
     ).reset_index()
 
     return results

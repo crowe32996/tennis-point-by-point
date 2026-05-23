@@ -10,44 +10,14 @@ if not (BASE_DIR / "data").exists():
     BASE_DIR = Path(__file__).resolve().parent  # fallback for cloud
 
 DUCKDB_FILE = BASE_DIR / "outputs" / "sim_results.duckdb"
+TABLE_NAME = "importance_results"
+PLAYER_COUNTRY_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
 
-# OUTPUT_FILE = BASE_DIR / "outputs" / "table_preview.xlsx"
-
-# Connect to DuckDB
-con = duckdb.connect(DUCKDB_FILE)
-
+# Initialize tables on module load
 transform_tables()
 
-# List of tables to export
-tables = ["match_detail", "point_detail", "point_probability", "player_detail"]
-
-# Dictionary to hold first 10 rows
-preview_data = {}
-
-for table in tables:
-    df = con.execute(f"SELECT * FROM {table} LIMIT 10").fetchdf()
-    preview_data[table] = df
-
-con.close()
-
-# # Write to Excel, each table in a separate sheet
-# with pd.ExcelWriter(OUTPUT_FILE, engine='xlsxwriter') as writer:
-#     for table, df in preview_data.items():
-#         df.to_excel(writer, sheet_name=table, index=False)
-
-# print(f"Preview saved to {OUTPUT_FILE}")
-
-TABLE_NAME = "importance_results"
-
-PLAYER_COUNTRY_FILE = BASE_DIR / "data" / "processed" / "player_countries.csv"
 player_country_df = pd.read_csv(PLAYER_COUNTRY_FILE)
 player_flag_map = dict(zip(player_country_df["player"], player_country_df["country"]))
-
-from transform import transform_tables
-
-# Run this once to create the cleaned tables
-transform_tables()
-print("DuckDB tables transformed and ready.")
 
 
 def clean_player_name(name: str) -> str:
@@ -108,10 +78,8 @@ def load_tab0_sql(selected_years, selected_tour, selected_tourney,
 
     df = con.execute(query).fetchdf()
     con.close()
-    # for col in ["player1", "player2",  "server_name", "returner_name"]:
-    #     if col in df.columns:
-    #         df[col] = df[col].apply(clean_player_name)
     return df
+
 
 @st.cache_data
 def load_tab1_sql(selected_years, selected_tour, selected_tourney,
@@ -155,10 +123,6 @@ def load_tab1_sql(selected_years, selected_tour, selected_tourney,
 
     df = con.execute(query).fetchdf()
     con.close()
-    # for col in ["player1", "player2", "server_name", "returner_name"]:
-    #     if col in df.columns:
-    #         df[col] = df[col].apply(clean_player_name)
-
     return df
 
 
@@ -212,8 +176,4 @@ def load_tab2_sql(selected_years, selected_tour, selected_tourney,
 
     df = con.execute(query).fetchdf()
     con.close()
-    # for col in ["player1", "player2", "server_name", "returner_name"]:
-    #     if col in df.columns:
-    #         df[col] = df[col].apply(clean_player_name)
-
     return df

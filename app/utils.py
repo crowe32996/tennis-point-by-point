@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,17 +21,10 @@ def add_basic_columns(df):
         df["player1"] = df["player1"].map(clean_player_name)
         df["player2"] = df["player2"].map(clean_player_name)
 
-    # --- gender + Tour extraction ---
-    # if "match_id" in df.columns:
-    #     # --- Tournament extraction from match_id ---
-    #     # Example match_id: 2023-ausopen-1120
-    #     df["tourney_code"] = df["match_id"].astype(str).str.split("-", n=2).str[1]
-    #     df["tournament"] = df["tourney_code"].map(TOURNAMENTS_MAP).fillna(df["tourney_code"])
-
     return df
 
 def filter_matches_by_sets(df: pd.DataFrame) -> pd.DataFrame:
-    """S
+    """
     Remove invalid matches from the dataset:
       - Men: exclude if a player has 3 sets won or more
       - Women: exclude if a player has 2 sets won or more
@@ -152,8 +146,8 @@ def render_flag_table(df, player_flag_map, player_col="Player", numeric_cols=Non
     if numeric_cols is None:
         numeric_cols = [c for c in df.columns if c != player_col]
 
-    html = '<div style="overflow-y:visible;">'
-    html += '<table style="width:100%; border-collapse: collapse;">'
+    html = '<div style="overflow-y:visible; color: inherit;">'
+    html += '<table style="width:100%; border-collapse: collapse; color: inherit;">'
     html += "<tr><th style='text-align:left'>Player</th>"
     for col in numeric_cols:
         html += f"<th style='text-align:right'>{col}</th>"
@@ -212,19 +206,20 @@ def render_scoreboard(row, height = 130):
 
     html = f"""
     <div style="
-        border: 2px solid #ddd; 
-        border-radius: 0px; 
-        padding: 2px; 
-        margin-bottom: 0px; 
-        box-shadow: 1px 1px 4px rgba(0,0,0,0.08);
+        border: 2px solid currentColor;
+        border-radius: 0px;
+        padding: 2px;
+        margin-bottom: 0px;
+        box-shadow: 1px 1px 4px rgba(128,128,128,0.2);
         font-family: Arial, sans-serif;
+        color: inherit;
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0px;">
             <span style="font-weight: bold; font-size: 1em;">{row['Tournament']} {row['Year']}</span>
             <span style="font-size: 1.2em;">{tournament_logo}</span>
         </div>
 
-        <table style="width:100%; text-align: center; border-collapse: collapse; font-size: 0.9em;">
+        <table style="width:100%; text-align: center; border-collapse: collapse; font-size: 0.9em; color: inherit;">
             <tr>
                 <th style="text-align:left;">Player</th>
                 <th>Sets</th>
@@ -245,7 +240,7 @@ def render_scoreboard(row, height = 130):
             </tr>
         </table>
 
-        <div style="margin-top:2px; font-size:0.85em; color:#555; text-align:center;">
+        <div style="margin-top:2px; font-size:0.85em; opacity:0.8; text-align:center;">
             Lowest Win Probability: {row['Win Probability']:.1f}%
         </div>
     </div>
