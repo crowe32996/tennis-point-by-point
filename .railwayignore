@@ -12,16 +12,8 @@ __pycache__/
 venv/
 .venv/
 
-# Ignore raw data (not needed for API)
-data/raw/
+# Ignore images
 images/
 
-# Ignore simulation code (not needed for API)
+# Ignore simulation code
 simulations/
-
-# Ignore old app code (using api/ instead)
-app/streamlit_app.py
-app/data.py
-app/data_processing.py
-app/transform.py
-app/utils.py
