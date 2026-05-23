@@ -1,0 +1,27 @@
+# Ignore frontend (deployed separately on Vercel)
+frontend/
+node_modules/
+
+# Ignore git
+.git/
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Ignore raw data (not needed for API)
+data/raw/
+images/
+
+# Ignore simulation code (not needed for API)
+simulations/
+
+# Ignore old app code (using api/ instead)
+app/streamlit_app.py
+app/data.py
+app/data_processing.py
+app/transform.py
+app/utils.py
