@@ -18,6 +18,7 @@ export interface PlayerClutch {
   clutch_score: number
   total_points: number
   avg_wp_delta: number
+  [key: string]: string | number | undefined
 }
 
 export interface PlayerConsistency {
@@ -28,6 +29,7 @@ export interface PlayerConsistency {
   delta_std: number
   total_points: number
   consistency_index: number
+  [key: string]: string | number | undefined
 }
 
 export interface PlayerHighPressure {
@@ -39,6 +41,7 @@ export interface PlayerHighPressure {
   overall_win_rate: number
   hp_win_rate: number
   clutch_delta: number
+  [key: string]: string | number | undefined
 }
 
 export interface UnlikelyMatch {
